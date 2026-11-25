@@ -47,6 +47,9 @@ class Settings(BaseSettings):
 
     # --- Limits ----------------------------------------------------------------
     max_concurrent_jobs: int = 2
+    # Size of the compute instance, used for the per-job compute cost (0 = local run, not billed).
+    compute_vcpu: float = 0
+    compute_memory_gib: float = 0
     max_files_per_job: int = 40
     max_image_mb: int = 25
     max_video_mb: int = 1024

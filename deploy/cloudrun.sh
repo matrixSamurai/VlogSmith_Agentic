@@ -67,7 +67,7 @@ echo "==> Firestore"
 gc firestore databases describe --database="(default)" >/dev/null 2>&1 || \
   gc firestore databases create --database="(default)" --location "$REGION" --type firestore-native
 
-ENV_VARS="ENVIRONMENT=cloud,STORAGE_BACKEND=gcs,JOBSTORE_BACKEND=firestore,GCS_BUCKET=${BUCKET},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},MAX_CONCURRENT_JOBS=2,RENDER_CONCURRENCY=3,WORK_DIR=/tmp/vlogsmith-work"
+ENV_VARS="ENVIRONMENT=cloud,STORAGE_BACKEND=gcs,JOBSTORE_BACKEND=firestore,GCS_BUCKET=${BUCKET},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},MAX_CONCURRENT_JOBS=2,RENDER_CONCURRENCY=3,WORK_DIR=/tmp/vlogsmith-work,COMPUTE_VCPU=4,COMPUTE_MEMORY_GIB=8"
 [[ -n "$MODEL_FAST" ]] && ENV_VARS+=",MODEL_FAST=${MODEL_FAST}"
 [[ -n "$MODEL_SMART" ]] && ENV_VARS+=",MODEL_SMART=${MODEL_SMART}"
 [[ -n "$MODEL_TTS" ]] && ENV_VARS+=",MODEL_TTS=${MODEL_TTS}"

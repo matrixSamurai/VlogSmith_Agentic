@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable
 
 from google.adk.models.base_llm import BaseLlm
 
+from ..costs import CostTracker
 from ..models import BlogSettings, MediaRef
 from ..storage import Storage
 
@@ -41,6 +42,7 @@ class JobRuntime:
     local: dict[str, LocalMedia] = field(default_factory=dict)
     music_upload: MediaRef | None = None
     extras: dict[str, Any] = field(default_factory=dict)
+    costs: CostTracker = field(default_factory=CostTracker)
 
     async def info(self, stage: str, message: str, progress: float | None = None) -> None:
         await self.report(stage, message, progress, "info")

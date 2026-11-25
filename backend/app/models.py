@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from .costs import JobCost
+
 MediaKind = Literal["image", "video", "audio"]
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 
@@ -159,6 +161,7 @@ class Job(BaseModel):
     summary: str | None = None
     duration: float | None = None
     error: str | None = None
+    cost: JobCost | None = None
     cancel_requested: bool = False
     created_at: float = Field(default_factory=now)
     updated_at: float = Field(default_factory=now)

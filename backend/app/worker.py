@@ -16,6 +16,7 @@ from .agents import runtime
 from .agents.pipeline import build_workflow
 from .agents.runtime import JobRuntime
 from .config import Settings
+from .costs import format_usd
 from .jobstore import JobStore
 from .models import Job, JobEvent, JobOutputs, MediaRef, now
 from .storage import Storage
@@ -112,26 +113,48 @@ class JobManager:
         runtime.register(rt)
         abort = asyncio.Event()
         hb = asyncio.create_task(self._heartbeat(job_id, abort))
+        started = now()
         try:
             result = await self._run_workflow(rt, abort)
+            await self.store.add_event(job_id, JobEvent(stage="done", level="success", progress=1.0,
+                                                        message="Your blog is ready"))
+            # Cost is recorded before the terminal status so progress streams always deliver it as the last event.
+            await self._record_cost(job_id, rt, started, final=True)
             await self.store.update_job(
                 job_id, status="succeeded", stage="done", progress=1.0, finished_at=now(),
                 outputs=JobOutputs.model_validate(result["outputs"]), title=result.get("title"),
                 summary=result.get("summary"), duration=result.get("duration"))
-            await self.store.add_event(job_id, JobEvent(stage="done", level="success", progress=1.0,
-                                                        message="Your blog is ready"))
         except asyncio.CancelledError:
-            await self.store.update_job(job_id, status="cancelled", stage="cancelled", finished_at=now())
             await self.store.add_event(job_id, JobEvent(stage="cancelled", level="warning", message="Cancelled"))
+            await self._record_cost(job_id, rt, started, final=False)
+            await self.store.update_job(job_id, status="cancelled", stage="cancelled", finished_at=now())
         except Exception as exc:  # noqa: BLE001 - surface any failure to the user
             log.error("job %s failed: %s\n%s", job_id, exc, traceback.format_exc())
             message = _friendly_error(exc)
-            await self.store.update_job(job_id, status="failed", stage="failed", finished_at=now(), error=message)
             await self.store.add_event(job_id, JobEvent(stage="failed", level="error", message=message))
+            await self._record_cost(job_id, rt, started, final=False)
+            await self.store.update_job(job_id, status="failed", stage="failed", finished_at=now(), error=message)
         finally:
             hb.cancel()
             runtime.unregister(job_id)
             shutil.rmtree(work, ignore_errors=True)
+
+    async def _record_cost(self, job_id: str, rt: JobRuntime, started: float, final: bool) -> None:
+        """Store the job's cost and announce it as the last activity event (also for failed/cancelled runs)."""
+        try:
+            cost = rt.costs.summary(now() - started, self.settings.compute_vcpu, self.settings.compute_memory_gib)
+            await self.store.update_job(job_id, cost=cost)
+            parts = [f"AI {format_usd(cost.ai_usd)}"]
+            if cost.compute_usd:
+                parts.append(f"compute {format_usd(cost.compute_usd)}")
+            tokens = sum(l.input_tokens + l.output_tokens for l in cost.lines)
+            label = "Generation cost" if final else "Spent before stopping"
+            msg = f"{label}: {format_usd(cost.total_usd)} ({' · '.join(parts)}; {tokens:,} tokens in {sum(l.calls for l in cost.lines)} model calls)"
+            if cost.unpriced_models:
+                msg += f" — no price set for {', '.join(cost.unpriced_models)}"
+            await self.store.add_event(job_id, JobEvent(stage="cost", level="success" if final else "info", message=msg))
+        except Exception as exc:  # cost reporting must never fail a job
+            log.warning("cost summary failed for %s: %s", job_id, exc)
 
     async def _run_workflow(self, rt: JobRuntime, abort: asyncio.Event) -> dict:
         workflow = build_workflow(rt)

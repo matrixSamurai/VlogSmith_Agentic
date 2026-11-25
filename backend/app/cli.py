@@ -109,6 +109,23 @@ def create(args: argparse.Namespace) -> None:
                         fh.write(chunk)
             print(f"[saved] {dest}")
         print(f"Done: “{job.get('title')}” ({job.get('duration') or 0:.0f}s)")
+        _print_cost(job.get("cost"))
+
+
+def _print_cost(cost: dict | None) -> None:
+    from .costs import format_usd
+
+    if not cost:
+        return
+    print("\nGeneration cost")
+    for line in cost["lines"]:
+        tokens = f"{line['input_tokens']:,} in / {line['output_tokens']:,} out"
+        print(f"  {line['label']:<26} {line['model']:<30} {line['calls']:>3} calls  {tokens:<26} {format_usd(line['cost_usd']):>9}")
+    if cost.get("compute_usd"):
+        print(f"  {'Cloud Run compute':<26} {'':<30} {cost['compute_seconds']:>5.0f}s {'':<29} {format_usd(cost['compute_usd']):>9}")
+    print(f"  {'TOTAL':<26} {'':<69} {format_usd(cost['total_usd']):>9}")
+    for note in cost.get("notes", []):
+        print(f"  * {note}")
 
 
 def main() -> None:

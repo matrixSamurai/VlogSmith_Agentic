@@ -49,7 +49,10 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     monkeypatch.setattr("app.agents.pipeline.get_settings", lambda: settings)
 
-    async def fake_tts(text, voice, out, model, style_hint=""):
+    async def fake_tts(text, voice, out, model, style_hint="", on_usage=None):
+        if on_usage:
+            from google.genai import types as gt
+            on_usage(model, gt.GenerateContentResponseUsageMetadata(prompt_token_count=50, candidates_token_count=1000))
         sr = 24000
         t = np.arange(int(sr * 2.5)) / sr
         pcm = (np.sin(2 * np.pi * 200 * t) * 8000).astype("<i2")
@@ -59,6 +62,7 @@ def env(tmp_path, monkeypatch):
         return out
 
     monkeypatch.setattr(audio, "synthesize_speech", fake_tts)
+    monkeypatch.setenv("PRICING_JSON", '{"fake-gemini": {"input": 3.0, "output": 15.0, "cached": 0.15}}')
     store = SQLiteJobStore(settings.local_data_dir / "t.db")
     storage = LocalStorage(settings.local_data_dir / "blobs")
     fake = FakeGemini(calls={})
@@ -134,6 +138,18 @@ async def test_full_pipeline(env, transition, voiceover, aspect):
         yt = (await client.get(f"/api/jobs/{job['id']}/files/youtube.txt")).text
         assert "Chasing Light in the Alps" in yt and "0:00 Intro" in yt and "Come ride the rails." in yt
         assert "Motion graphics:" in events
+        # Cost: every fake call = 1000 in + (200 out + 300 thinking) -> $0.003 + $0.0075 = $0.0105
+        cost = job["cost"]
+        fake_lines = [l for l in cost["lines"] if l["model"] == "fake-gemini"]
+        calls = sum(l["calls"] for l in fake_lines)
+        assert calls == sum(fake.calls.values())
+        assert abs(sum(l["cost_usd"] for l in fake_lines) - calls * 0.0105) < 1e-6
+        assert abs(cost["ai_usd"] - sum(l["cost_usd"] for l in cost["lines"])) < 1e-6
+        if voiceover:
+            tts = next(l for l in cost["lines"] if l["label"] == "Voiceover (TTS)")
+            assert tts["calls"] == 2 and abs(tts["cost_usd"] - 2 * (50 * 0.5 + 1000 * 10) / 1e6) < 1e-9
+        progress = [l for l in events.splitlines() if l.startswith("data:") and '"seq"' in l]
+        assert "Generation cost: $" in progress[-1]  # announced as the very last activity event
         if voiceover:
             assert "subtitle words" in events
         assert (await client.get(f"/api/jobs/{job['id']}/files/../../t.db")).status_code == 404

@@ -50,6 +50,33 @@ export interface ServerConfig {
   accept: Record<"image" | "video" | "audio", string[]>;
 }
 
+export interface CostLine {
+  label: string;
+  model: string;
+  calls: number;
+  input_tokens: number;
+  cached_tokens: number;
+  output_tokens: number;
+  thinking_tokens: number;
+  cost_usd: number | null;
+}
+
+export interface JobCost {
+  total_usd: number;
+  ai_usd: number;
+  compute_usd: number;
+  compute_seconds: number;
+  lines: CostLine[];
+  unpriced_models: string[];
+  notes: string[];
+}
+
+export function usd(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "n/a";
+  if (v === 0) return "$0.00";
+  return v < 0.1 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`;
+}
+
 export interface MediaRef { id: string; filename: string; kind: "image" | "video" | "audio" }
 
 export interface Job {
@@ -64,6 +91,7 @@ export interface Job {
   summary?: string | null;
   duration?: number | null;
   error?: string | null;
+  cost?: JobCost | null;
   created_at: number;
   started_at?: number | null;
   finished_at?: number | null;

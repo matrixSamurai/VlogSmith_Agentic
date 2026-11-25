@@ -65,4 +65,7 @@ class FakeGemini(BaseLlm):
                        seo_title="Alps vlog", seo_description="A trip to the Alps.", youtube_description="Come ride the rails.", tags=["alps", "travel"])
         else:
             out = {}
-        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=json.dumps(out))]))
+        usage = types.GenerateContentResponseUsageMetadata(prompt_token_count=1000, candidates_token_count=200,
+                                                           thoughts_token_count=300, total_token_count=1500)
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=json.dumps(out))]),
+                          usage_metadata=usage)

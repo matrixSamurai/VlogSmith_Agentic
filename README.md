@@ -56,6 +56,20 @@ length, keep or mute clip audio, music source, mood and volume, voiceover and vo
 editor review rounds, and quality (fast/balanced/high, which picks Flash or Pro and the x264 preset). The UI also has
 one-click presets (YouTube, Reel/Short, Cinematic, Square).
 
+## Generation cost
+
+Every run ends with a **Generation cost** line in the activity log. The job page shows a breakdown card, and the
+CLI prints a table. The cost is shown for failed and cancelled runs too, as "spent before stopping".
+
+- **AI:** Gemini reports token usage for every call (an ADK `after_model_callback` on each agent, plus the TTS
+  responses). That usage is multiplied by the paid-tier list prices in `backend/app/costs.py`. Thinking tokens are
+  billed as output. Override or add prices with `PRICING_JSON='{"model": {"input": 3, "output": 15, "cached": 0.15}}'`.
+  A model without a price is shown with its token counts as "n/a" instead of a guess.
+- **Compute:** on Cloud Run, the job's wall time × 4 vCPU / 8 GiB at instance-based rates. This is an upper bound:
+  the instance can be shared by concurrent jobs, and the monthly free tier isn't applied. Local runs show no compute cost.
+
+These are estimates. Your Google Cloud / AI Studio bill is the authoritative figure.
+
 ## Run locally
 
 Requirements: Python 3.12, Node ≥ 20.19, and a Gemini API key (https://aistudio.google.com/apikey) or Vertex AI.

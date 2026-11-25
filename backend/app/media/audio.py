@@ -15,7 +15,8 @@ SR = 48000
 
 
 # --------------------------------------------------------------------------- TTS
-async def synthesize_speech(text: str, voice: str, out: Path, model: str, style_hint: str = "") -> Path:
+async def synthesize_speech(text: str, voice: str, out: Path, model: str, style_hint: str = "",
+                           on_usage=None) -> Path:
     """Gemini TTS returns 24 kHz mono 16-bit PCM; wrap it into a WAV file."""
     from google import genai
     from google.genai import types
@@ -32,6 +33,8 @@ async def synthesize_speech(text: str, voice: str, out: Path, model: str, style_
             ),
         ),
     )
+    if on_usage is not None:
+        on_usage(model, resp.usage_metadata)
     part = resp.candidates[0].content.parts[0]
     pcm = part.inline_data.data
     if isinstance(pcm, str):

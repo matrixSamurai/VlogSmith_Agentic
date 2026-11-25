@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Clapperboard, Loader2, Plus, Trash2 } from "lucide-react";
-import { api, type Job } from "../api";
+import { api, usd, type Job } from "../api";
 import { ProgressBar, StatusBadge, timeAgo } from "../components/ui";
 
 export default function LibraryPage() {
@@ -60,6 +60,7 @@ export default function LibraryPage() {
                   <div className="text-xs text-zinc-500">
                     {timeAgo(job.created_at)} · {job.settings.aspect_ratio}
                     {job.duration ? ` · ${Math.round(job.duration)}s` : ""}
+                    {job.cost ? ` · ${usd(job.cost.total_usd)}` : ""}
                   </div>
                   {(job.status === "running" || job.status === "queued") && <ProgressBar value={job.progress} />}
                 </div>

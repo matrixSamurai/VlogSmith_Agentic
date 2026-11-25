@@ -151,6 +151,8 @@ def build_workflow(rt: JobRuntime) -> Workflow:
         name="article_editor", model=fast, instruction=prompts.ARTICLE, output_schema=ArticleExtras,
         include_contents="none", generate_content_config=_gen_config(0.7),
     )
+    for agent in (analyst, planner, writer, reviewer, article_editor):
+        agent.after_model_callback = _usage_tracker(rt, agent)
     work = rt.work_dir
 
     # ---------------------------------------------------------------- ingest
@@ -354,7 +356,8 @@ def build_workflow(rt: JobRuntime) -> Workflow:
                 return None
             async with sem:
                 p = await audio.synthesize_speech(sec["narration"], s.voice, work / "voice" / f"s{sec['index']}.wav",
-                                                  cfg.model_tts, style)
+                                                  cfg.model_tts, style,
+                                                  on_usage=lambda m, u: rt.costs.record("tts", m, u))
             return str(p)
 
         results = await asyncio.gather(*(one(x) for x in sections), return_exceptions=True)
@@ -511,6 +514,18 @@ def build_workflow(rt: JobRuntime) -> Workflow:
             ((narrate, compose_music, write_article), production_join, render_video, publish),
         ],
     )
+
+
+def _usage_tracker(rt: JobRuntime, agent: LlmAgent):
+    """after_model_callback that adds each Gemini call's token usage to the job's cost tracker."""
+    model_name = agent.model if isinstance(agent.model, str) else getattr(agent.model, "model", "unknown")
+
+    def track(callback_context, llm_response):
+        if not getattr(llm_response, "partial", False):
+            rt.costs.record(agent.name, model_name, getattr(llm_response, "usage_metadata", None))
+        return None
+
+    return track
 
 
 # ------------------------------------------------------------ repairs (LLM output hardening)

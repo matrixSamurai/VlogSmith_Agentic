@@ -4,7 +4,7 @@ import {
   ArrowLeft, Check, Clapperboard, Copy, MonitorPlay, Download, FileText, Film, Loader2, Mic, Package, PenLine, RefreshCcw, ScanEye,
   ShieldCheck, Upload, X, XCircle, Map as MapIcon,
 } from "lucide-react";
-import { api, subscribe, type Job, type JobEvent } from "../api";
+import { api, subscribe, usd, type Job, type JobCost, type JobEvent } from "../api";
 import { ProgressBar, StatusBadge } from "../components/ui";
 
 const STAGES = [
@@ -107,6 +107,8 @@ export default function JobPage() {
         ) : (
           <Pipeline states={stageStates} />
         )}
+        <div className="space-y-6">
+        {job.cost && !running && <CostCard cost={job.cost} final={done} />}
         <div className="card flex max-h-[640px] flex-col p-0">
           <div className="border-b border-white/5 px-5 py-3 text-sm font-semibold">Agent activity</div>
           <div ref={logRef} className="flex-1 space-y-2 overflow-y-auto p-4 text-sm">
@@ -125,6 +127,7 @@ export default function JobPage() {
             ))}
             {running && <div className="flex items-center gap-2 pl-[68px] text-zinc-500"><Loader2 size={13} className="animate-spin" /> working…</div>}
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -232,6 +235,51 @@ function YouTubePanel({ job }: { job: Job }) {
         <div className="space-y-2">
           <span className="label">Thumbnail</span>
           <img src={api.fileUrl(job.id, job.outputs.thumbnail)} alt="Thumbnail" className="w-full rounded-xl ring-1 ring-white/10" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CostCard({ cost, final }: { cost: JobCost; final: boolean }) {
+  const [open, setOpen] = useState(false);
+  const tokens = cost.lines.reduce((a, l) => a + l.input_tokens + l.output_tokens, 0);
+  return (
+    <div className="card p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="label">{final ? "Generation cost" : "Spent before stopping"}</div>
+          <div className="mt-1 text-3xl font-semibold tabular-nums">{usd(cost.total_usd)}</div>
+          <div className="mt-1 text-xs text-zinc-500">
+            AI {usd(cost.ai_usd)}{cost.compute_usd ? ` · compute ${usd(cost.compute_usd)}` : ""} · {tokens.toLocaleString()} tokens
+          </div>
+        </div>
+        <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setOpen(!open)}>{open ? "Hide" : "Breakdown"}</button>
+      </div>
+      {open && (
+        <div className="mt-4 space-y-3">
+          <table className="w-full text-xs">
+            <thead className="text-left text-zinc-500">
+              <tr><th className="pb-2 font-medium">Step</th><th className="pb-2 text-right font-medium">Calls</th>
+                <th className="pb-2 text-right font-medium">Tokens in / out</th><th className="pb-2 text-right font-medium">Cost</th></tr>
+            </thead>
+            <tbody className="divide-y divide-white/5 tabular-nums text-zinc-300">
+              {cost.lines.map((l) => (
+                <tr key={l.label + l.model} title={`${l.model}${l.thinking_tokens ? ` · ${l.thinking_tokens.toLocaleString()} thinking tokens (billed as output)` : ""}`}>
+                  <td className="py-1.5">{l.label}</td>
+                  <td className="py-1.5 text-right">{l.calls}</td>
+                  <td className="py-1.5 text-right">{l.input_tokens.toLocaleString()} / {l.output_tokens.toLocaleString()}</td>
+                  <td className="py-1.5 text-right">{usd(l.cost_usd)}</td>
+                </tr>
+              ))}
+              {cost.compute_usd > 0 && (
+                <tr><td className="py-1.5">Cloud Run compute</td><td className="py-1.5 text-right">—</td>
+                  <td className="py-1.5 text-right">{Math.round(cost.compute_seconds)}s</td><td className="py-1.5 text-right">{usd(cost.compute_usd)}</td></tr>
+              )}
+            </tbody>
+          </table>
+          {cost.notes.map((n) => <p key={n} className="text-[11px] leading-relaxed text-zinc-500">{n}</p>)}
+          <p className="text-[11px] leading-relaxed text-zinc-500">Estimated from the token counts Gemini reports and published list prices; your Google bill is authoritative.</p>
         </div>
       )}
     </div>
