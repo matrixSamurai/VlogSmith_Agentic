@@ -1,0 +1,13 @@
+services:
+  vlogsmith:
+    build: .
+    ports: ["8080:8080"]
+    env_file: .env
+    environment:
+      STORAGE_BACKEND: local
+      JOBSTORE_BACKEND: sqlite
+      LOCAL_DATA_DIR: /app/backend/data
+    volumes:
+      - vlogsmith-data:/app/backend/data
+volumes:
+  vlogsmith-data:
