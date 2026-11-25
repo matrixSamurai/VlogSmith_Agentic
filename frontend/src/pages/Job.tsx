@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Check, Clapperboard, Download, FileText, Film, Loader2, Mic, Package, PenLine, RefreshCcw, ScanEye,
+  ArrowLeft, Check, Clapperboard, Copy, MonitorPlay, Download, FileText, Film, Loader2, Mic, Package, PenLine, RefreshCcw, ScanEye,
   ShieldCheck, Upload, X, XCircle, Map as MapIcon,
 } from "lucide-react";
 import { api, subscribe, type Job, type JobEvent } from "../api";
@@ -19,13 +19,14 @@ const STAGES = [
 ] as const;
 
 type StageState = "pending" | "active" | "done" | "failed";
+type Tab = "video" | "article" | "youtube";
 
 export default function JobPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const [job, setJob] = useState<Job | null>(null);
   const [events, setEvents] = useState<JobEvent[]>([]);
-  const [tab, setTab] = useState<"video" | "article">("video");
+  const [tab, setTab] = useState<Tab>("video");
   const [error, setError] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -162,22 +163,29 @@ function Pipeline({ states }: { states: Record<string, StageState> }) {
   );
 }
 
-function Results({ job, tab, setTab }: { job: Job; tab: "video" | "article"; setTab: (t: "video" | "article") => void }) {
+function Results({ job, tab, setTab }: { job: Job; tab: Tab; setTab: (t: Tab) => void }) {
   const o = job.outputs;
   const vertical = job.settings.aspect_ratio === "9:16";
+  const tabs: Tab[] = ["video", ...(o.youtube ? ["youtube" as Tab] : []), ...(o.article_html ? ["article" as Tab] : [])];
+  const icon = { video: <Clapperboard size={14} />, youtube: <MonitorPlay size={14} />, article: <FileText size={14} /> };
   return (
     <div className="space-y-4">
-      {o.article_html && (
+      {tabs.length > 1 && (
         <div className="flex gap-1 rounded-xl border border-white/10 bg-zinc-900/80 p-1 sm:w-fit">
-          {(["video", "article"] as const).map((t) => (
+          {tabs.map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium capitalize ${tab === t ? "bg-brand-500 text-white" : "text-zinc-400 hover:text-white"}`}>
-              {t === "video" ? <Clapperboard size={14} /> : <FileText size={14} />} {t}
+              {icon[t]} {t === "youtube" ? "YouTube" : t}
             </button>
           ))}
         </div>
       )}
-      {tab === "video" || !o.article_html ? (
+      {tab === "article" && o.article_html ? (
+        <iframe title="Article preview" sandbox="" src={api.fileUrl(job.id, o.article_html)}
+          className="h-[75vh] w-full rounded-2xl border border-white/10 bg-white" />
+      ) : tab === "youtube" && o.youtube ? (
+        <YouTubePanel job={job} />
+      ) : (
         <div className="card overflow-hidden bg-black p-0">
           <video
             key={job.id}
@@ -187,17 +195,45 @@ function Results({ job, tab, setTab }: { job: Job; tab: "video" | "article"; set
             className={`mx-auto block bg-black ${vertical ? "max-h-[75vh]" : "w-full"}`}
           />
         </div>
-      ) : (
-        <iframe title="Article preview" sandbox="" src={api.fileUrl(job.id, o.article_html)}
-          className="h-[75vh] w-full rounded-2xl border border-white/10 bg-white" />
       )}
       <div className="flex flex-wrap gap-2">
         <a className="btn-primary" href={api.fileUrl(job.id, o.video || "vlog.mp4", true)}><Download size={15} /> Video (MP4)</a>
+        {o.thumbnail && <a className="btn-ghost" href={api.fileUrl(job.id, o.thumbnail, true)}><Download size={15} /> Thumbnail</a>}
+        {o.youtube && <a className="btn-ghost" href={api.fileUrl(job.id, o.youtube, true)}><MonitorPlay size={15} /> YouTube text</a>}
         {o.article_html && <a className="btn-ghost" href={api.fileUrl(job.id, o.article_html, true)}><FileText size={15} /> Article HTML</a>}
         {o.article_md && <a className="btn-ghost" href={api.fileUrl(job.id, o.article_md, true)}><FileText size={15} /> Markdown</a>}
         {o.package && <a className="btn-ghost" href={api.fileUrl(job.id, o.package, true)}><Package size={15} /> Full package (.zip)</a>}
       </div>
       {job.duration && <p className="text-xs text-zinc-500">{Math.round(job.duration)}s · {job.settings.resolution} · {job.settings.fps} fps</p>}
+    </div>
+  );
+}
+
+function YouTubePanel({ job }: { job: Job }) {
+  const [text, setText] = useState<string>("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    fetch(api.fileUrl(job.id, job.outputs.youtube!)).then((r) => r.text()).then(setText).catch(() => setText(""));
+  }, [job.id, job.outputs.youtube]);
+  const copy = async () => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="card relative p-5">
+        <button className="btn-ghost absolute right-4 top-4 px-3 py-1.5 text-xs" onClick={copy}>
+          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? "Copied" : "Copy all"}
+        </button>
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap pr-24 font-sans text-sm leading-relaxed text-zinc-200">{text || "Loading…"}</pre>
+      </div>
+      {job.outputs.thumbnail && (
+        <div className="space-y-2">
+          <span className="label">Thumbnail</span>
+          <img src={api.fileUrl(job.id, job.outputs.thumbnail)} alt="Thumbnail" className="w-full rounded-xl ring-1 ring-white/10" />
+        </div>
+      )}
     </div>
   );
 }

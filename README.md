@@ -3,10 +3,25 @@
 Upload photos and video clips, describe the story, and press **Create**. A multi-agent workflow built on
 Google's Agent Development Kit (ADK 2.x `Workflow` graph API) and Gemini produces:
 
-- **`vlog.mp4`**: an edited video with a title card, Ken Burns photos, section labels, captions on each shot,
-  your clips placed between photos, transitions, a soundtrack, an optional AI voiceover and an outro card.
+- **`vlog.mp4`**: a YouTube-style edit. It opens cold on your best shot with an animated title, then moves through
+  chapters with animated section titles, 📍 location tags, lower thirds, creator-style captions with a highlighted
+  keyword, and sticker callouts. It adds Ken Burns motion aimed at each shot's subject, a colour grade, cuts on the
+  music beat, bigger transitions and whooshes between chapters, an optional AI voiceover with word-by-word subtitles,
+  and an end screen with an animated subscribe button.
+- **`thumbnail.jpg`**: a 1280×720 YouTube thumbnail with huge outlined text placed away from the subject.
+- **`youtube.txt`**: title, description, chapter timestamps and tags, ready to paste.
 - **`article.html` / `article.md`**: a written blog post with your photos and short web clips embedded between sections.
 - **`blog_package.zip`**: everything above in one download.
+
+### Motion graphics
+
+The overlay engine is in `backend/app/media/overlays.py`. Each graphic is a layer that draws itself at time *t*
+with easing (pop, slide, wipe, word-by-word). A shot's layers are rendered into PNG keyframes, one per visual change,
+and FFmpeg overlays them through the concat demuxer, so animations are frame-accurate and cheap. There are four
+themes: **Creator** (bold, outlined, yellow keyword), **Pop** (condensed, colourful stickers), **Clean** (minimal,
+keyword box) and **Cinematic** (serif, italic gold accent, optional letterbox). Subtitle word timings are estimated
+from the TTS audio's speech segments (`media/timing.py`). Text in Devanagari and other non-Latin scripts falls back
+to Noto fonts.
 
 ## The agent workflow
 
@@ -35,7 +50,8 @@ Prompts are in `backend/app/agents/prompts.py`.
 ## Settings users can configure
 
 Tone, language, audience, title, target length (20–600 s), aspect ratio (16:9 / 9:16 / 1:1), 720p/1080p, 24/30 fps,
-caption style and position, transition type and duration, Ken Burns motion, title and outro cards, outro text, max clip
+motion-graphics theme and caption position, colour grade, smart crop vs fit-with-blur, beat-synced cuts, letterbox,
+animated subtitles, transition SFX, channel name for the end screen, transition type and duration, Ken Burns motion, title and outro cards, outro text, max clip
 length, keep or mute clip audio, music source, mood and volume, voiceover and voice, article on/off and length,
 editor review rounds, and quality (fast/balanced/high, which picks Flash or Pro and the x264 preset). The UI also has
 one-click presets (YouTube, Reel/Short, Cinematic, Square).

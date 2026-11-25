@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import get_settings
 from .jobstore import build_jobstore
 from .models import (
-    MUSIC_MOODS, TONES, TRANSITIONS, VOICES, BlogSettings, CreateJobRequest, Job, UploadRecord, UploadRequest,
+    LOOKS, MUSIC_MOODS, TONES, TRANSITIONS, VOICES, BlogSettings, CreateJobRequest, Job, UploadRecord, UploadRequest,
     UploadTicket, new_id,
 )
 from .storage import build_storage
@@ -29,9 +29,9 @@ log = logging.getLogger("vlogsmith")
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
-OUTPUT_FILE_RE = re.compile(r"^(vlog\.mp4|thumbnail\.jpg|article\.(html|md)|blog_package\.zip|media/m\d+(_poster)?\.(jpg|mp4))$")
+OUTPUT_FILE_RE = re.compile(r"^(vlog\.mp4|thumbnail\.jpg|article\.(html|md)|blog_package\.zip|youtube\.txt|media/m\d+(_poster)?\.(jpg|mp4))$")
 CONTENT_TYPES = {".mp4": "video/mp4", ".jpg": "image/jpeg", ".html": "text/html; charset=utf-8",
-                 ".md": "text/markdown; charset=utf-8", ".zip": "application/zip"}
+                 ".md": "text/markdown; charset=utf-8", ".zip": "application/zip", ".txt": "text/plain; charset=utf-8"}
 
 
 def classify(filename: str, content_type: str) -> str | None:
@@ -83,7 +83,8 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
             "llm_configured": settings.llm_configured,
             "vertex_enabled": settings.vertex_enabled,
             "defaults": json.loads(BlogSettings(context="...").model_dump_json()),
-            "options": {"tones": TONES, "music_moods": MUSIC_MOODS, "voices": VOICES, "transitions": TRANSITIONS},
+            "options": {"tones": TONES, "music_moods": MUSIC_MOODS, "voices": VOICES, "transitions": TRANSITIONS,
+                        "looks": LOOKS},
             "limits": {"max_files": settings.max_files_per_job, "max_mb": limits},
             "accept": {"image": sorted(IMAGE_EXT), "video": sorted(VIDEO_EXT), "audio": sorted(AUDIO_EXT)},
         }

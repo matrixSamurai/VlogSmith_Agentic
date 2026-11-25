@@ -22,8 +22,10 @@ import html
 import json
 import logging
 import re
+import math
 import shutil
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -32,13 +34,14 @@ from google.adk.workflow import START, JoinNode, Workflow, node
 from google.genai import types
 
 from ..config import get_settings
-from ..media import audio, graphics
+from ..media import audio, graphics, timing
+from ..media import overlays as O
 from ..media.ffmpeg import FFmpegError, extract_frames, probe, run_ffmpeg
-from ..media.renderer import Clip, RenderSpec, layout_timeline, render_timeline
+from ..media.renderer import Clip, RenderSpec, layout_timeline, plan_boundaries, render_timeline
 from ..models import JobOutputs
 from . import prompts
 from .runtime import JobRuntime, LocalMedia
-from .schemas import ArticleExtras, MediaInsight, ScriptReview, SectionScript, StoryPlan
+from .schemas import LOOKS, OVERLAYS, ArticleExtras, MediaInsight, ScriptReview, SectionScript, StoryPlan
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +93,8 @@ def _media_summary(rt: JobRuntime, insights: dict[str, dict], ids: list[str] | N
         )
         rows.append(
             f"- id={mid} ({extra}; quality {ins['quality']}/10; mood {ins['mood']}): {ins['description']} "
-            f"Setting: {ins['setting']}. Subjects: {', '.join(ins['subjects'])}. Caption idea: {ins['caption_idea']}"
+            f"Setting: {ins['setting']}." + (f" Location: {ins['location']}." if ins.get("location") else "")
+            + f" Subjects: {', '.join(ins['subjects'])}. Caption idea: {ins['caption_idea']}"
         )
     return "\n".join(rows)
 
@@ -212,9 +216,12 @@ def build_workflow(rt: JobRuntime) -> Workflow:
             log.warning("analysis failed for %s: %s", mid, exc)
             await rt.warn("analyze", f"Could not analyse {lm.ref.filename}; using defaults")
             insight = MediaInsight(
-                description=lm.ref.filename, subjects=[], setting="", mood="neutral", quality=5,
-                caption_idea="", highlight_start=0, highlight_end=min(lm.duration, s.max_clip_seconds), tags=[],
+                description=lm.ref.filename, subjects=[], setting="", location="", mood="neutral", quality=5,
+                caption_idea="", focus_x=0.5, focus_y=0.45, highlight_start=0,
+                highlight_end=min(lm.duration, s.max_clip_seconds), tags=[],
             ).model_dump()
+        insight["focus_x"] = _clamp(float(insight.get("focus_x", 0.5)), 0.0, 1.0)
+        insight["focus_y"] = _clamp(float(insight.get("focus_y", 0.45)), 0.0, 1.0)
         done = rt.extras["analyzed"] = rt.extras.get("analyzed", 0) + 1
         await rt.info("analyze", f"Analysed {lm.ref.filename} ({done}/{len(rt.local)})", 0.1 + 0.15 * done / len(rt.local))
         return {"media_id": mid, **insight}
@@ -394,14 +401,14 @@ def build_workflow(rt: JobRuntime) -> Workflow:
             await rt.info("production", f"Composing the soundtrack (mood: {mood})", 0.58)
             track = await asyncio.to_thread(audio.generate_soundtrack, mood, length, work / "music.wav",
                                             abs(hash(rt.job_id)) % 10_000)
+            rt.extras["bpm"] = audio.mood_bpm(mood)  # known tempo -> cuts can land on the beat
         rt.extras["music"] = track
         return {"music": source if track else "none", "mood": mood}
 
     @node(name="write_article", rerun_on_resume=True)
     async def write_article(ctx: Context, node_input: Any):
-        if not s.generate_article:
-            return {"article": False}
-        await rt.info("production", "Article editor is writing the intro, conclusion and SEO metadata", 0.59)
+        what = "article intro, conclusion, SEO and YouTube description" if s.generate_article else "YouTube description"
+        await rt.info("production", f"Channel editor is writing the {what}", 0.59)
         plan = ctx.state["plan"]
         body = "\n\n".join(f"## {x['heading']}\n{x['article_body']}" for x in ctx.state["sections"])
         try:
@@ -412,7 +419,7 @@ def build_workflow(rt: JobRuntime) -> Workflow:
             log.warning("article editor failed: %s", exc)
             ctx.state["article"] = ArticleExtras(
                 intro=plan["hook"], conclusion="", seo_title=plan["title"], seo_description=plan["subtitle"][:155],
-                tags=[]).model_dump()
+                youtube_description=f"{plan['hook']}\n\n{plan['subtitle']}", tags=[]).model_dump()
         return {"article": True}
 
     production_join = JoinNode(name="production_join")
@@ -422,16 +429,18 @@ def build_workflow(rt: JobRuntime) -> Workflow:
     async def render_video(ctx: Context, node_input: Any):
         plan = StoryPlan.model_validate(ctx.state["plan"])
         sections = ctx.state["sections"]
+        insights = ctx.state["insights"]
         W, H = s.frame_size
+        look = s.color_look if s.color_look != "auto" else (plan.look if plan.look in LOOKS else "natural")
         spec = RenderSpec(W, H, s.fps, s.transition, s.transition_duration, s.ken_burns, s.quality,
-                          s.clip_audio, s.clip_audio_volume)
-        clips, section_first, cover = _build_clips(rt, plan, sections, spec, ctx.state["insights"])
-        timeline = layout_timeline(clips, spec)
-        voice_parts = []
-        for i, path in enumerate(rt.extras.get("voice", [])):
-            if path and i in section_first:
-                voice_parts.append((timeline.starts[section_first[i]] + 0.35, Path(path)))
-        await rt.info("render", f"Rendering {len(clips)} shots ({timeline.total:.0f}s at {W}x{H})", 0.62)
+                          s.clip_audio, s.clip_audio_volume, look=look, letterbox=s.letterbox, framing=s.framing)
+        edit = await asyncio.to_thread(_build_edit, rt, plan, sections, spec, insights)
+        timeline = edit.timeline
+        await rt.info("render", f"Motion graphics: {edit.graphics} animated overlays"
+                      + (f", {edit.subtitle_words} subtitle words" if edit.subtitle_words else "")
+                      + f" · look: {look}" + (f" · cuts on the beat ({rt.extras['bpm']:.0f} BPM)" if edit.beat_synced else ""),
+                      0.61)
+        await rt.info("render", f"Rendering {len(timeline.clips)} shots ({timeline.total:.0f}s at {W}x{H})", 0.62)
 
         async def progress(done: int, total: int):
             await rt.info("render", f"Rendered shot {done}/{total}", 0.62 + 0.25 * done / total)
@@ -439,12 +448,14 @@ def build_workflow(rt: JobRuntime) -> Workflow:
         out = work / "out" / "vlog.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         await render_timeline(timeline, spec, work / "render", out, rt.extras.get("music"), s.music_volume,
-                              voice_parts, concurrency=cfg.render_concurrency, on_progress=progress)
+                              edit.voice_parts, concurrency=cfg.render_concurrency, on_progress=progress,
+                              sfx_parts=edit.sfx_parts, subtitles=edit.subtitles)
         thumb = work / "out" / "thumbnail.jpg"
-        await asyncio.to_thread(graphics.title_card, thumb, (1280, int(1280 * H / W)) if W >= H else (720, int(720 * H / W)),
-                                plan.title, plan.subtitle, cover, s.caption_style)
-        rt.extras["video"], rt.extras["thumbnail"], rt.extras["cover"] = out, thumb, cover
+        await asyncio.to_thread(graphics.youtube_thumbnail, thumb, edit.hero_still, plan.thumbnail_text or plan.title,
+                                plan.title_emphasis, s.caption_style, edit.hero_focus)
+        rt.extras["video"], rt.extras["thumbnail"] = out, thumb
         ctx.state["duration"] = timeline.total
+        ctx.state["chapters"] = edit.chapters
         await rt.report("render", f"Video rendered ({timeline.total:.0f}s)", 0.9, "success")
         return {"video": str(out), "duration": timeline.total}
 
@@ -457,9 +468,12 @@ def build_workflow(rt: JobRuntime) -> Workflow:
         out_dir = work / "out"
         media_dir = out_dir / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
-        outputs = JobOutputs(video="vlog.mp4", thumbnail="thumbnail.jpg")
+        outputs = JobOutputs(video="vlog.mp4", thumbnail="thumbnail.jpg", youtube="youtube.txt")
+        meta = ArticleExtras.model_validate(ctx.state["article"])
+        (out_dir / "youtube.txt").write_text(_youtube_text(plan, meta, ctx.state.get("chapters", [])), encoding="utf-8")
         files: list[tuple[Path, str, str]] = [
-            (rt.extras["video"], "vlog.mp4", "video/mp4"), (rt.extras["thumbnail"], "thumbnail.jpg", "image/jpeg")]
+            (rt.extras["video"], "vlog.mp4", "video/mp4"), (rt.extras["thumbnail"], "thumbnail.jpg", "image/jpeg"),
+            (out_dir / "youtube.txt", "youtube.txt", "text/plain; charset=utf-8")]
 
         if s.generate_article:
             article = ArticleExtras.model_validate(ctx.state["article"])
@@ -511,7 +525,8 @@ def _repair_plan(plan: StoryPlan, insights: dict[str, dict]) -> StoryPlan:
     if not plan.sections:
         from .schemas import PlannedSection
 
-        plan.sections = [PlannedSection(heading=plan.title or "The story", kicker="", purpose="", media_ids=[], seconds=30)]
+        plan.sections = [PlannedSection(heading=plan.title or "The story", heading_emphasis="", kicker="", purpose="",
+                                       media_ids=[], seconds=30)]
     for m in missing:  # append leftovers to the smallest section
         min(plan.sections, key=lambda x: len(x.media_ids)).media_ids.append(m)
     return plan
@@ -524,84 +539,244 @@ def _repair_script(script: SectionScript, media_ids: list[str], insights: dict, 
     shots, alts = [], []
     for n, mid in enumerate(media_ids):
         ins = insights.get(mid, {})
-        sh = by_id.get(mid) or Shot(media_id=mid, caption=ins.get("caption_idea", ""), seconds=4,
-                                    clip_start=ins.get("highlight_start", 0))
+        sh = by_id.get(mid) or Shot(media_id=mid, overlay="caption" if n else "none", caption=ins.get("caption_idea", ""),
+                                    emphasis="", subline="", seconds=4, clip_start=ins.get("highlight_start", 0))
+        sh.overlay = sh.overlay.strip().lower().replace("-", "_").replace(" ", "_")
+        if sh.overlay not in OVERLAYS or (sh.overlay != "none" and not sh.caption.strip()):
+            sh.overlay = "none" if not sh.caption.strip() else "caption"
         shots.append(sh)
         alts.append(script.image_alt[n] if n < len(script.image_alt) else ins.get("description", ""))
     script.shots, script.image_alt = shots, alts
     return script
 
 
-# ------------------------------------------------------------ timeline construction
-def _build_clips(rt: JobRuntime, plan: StoryPlan, sections: list[dict], spec: RenderSpec, insights: dict):
+# ------------------------------------------------------------ the edit (timeline + motion graphics)
+@dataclass
+class Edit:
+    timeline: Any
+    voice_parts: list[tuple[float, Path]]
+    sfx_parts: list[tuple[float, Path, float]]
+    subtitles: Path | None
+    chapters: list[tuple[float, str]]
+    hero_still: Path | None
+    hero_focus: tuple[float, float]
+    graphics: int
+    subtitle_words: int
+    beat_synced: bool
+
+
+def _build_edit(rt: JobRuntime, plan: StoryPlan, sections: list[dict], spec: RenderSpec, insights: dict) -> Edit:
+    """Decide every shot, its length, graphics, transitions, SFX and subtitles. Runs in a worker thread."""
     s = rt.settings
     W, H = spec.width, spec.height
+    size = (W, H)
     gfx = rt.work_dir / "gfx"
-    min_shot = max(1.6, 2 * spec.overlap + 0.4)
+    gfx.mkdir(parents=True, exist_ok=True)
+    texts = s.caption_style != "none"
+    theme = O.get_theme(s.caption_style)
+    voice = rt.extras.get("voice", [])
+    use_subs = texts and s.subtitles and s.voiceover and any(voice)
+
+    def focus_of(mid: str) -> tuple[float, float]:
+        ins = insights.get(mid, {})
+        return float(ins.get("focus_x", 0.5)), float(ins.get("focus_y", 0.45))
+
+    # Hero = the strongest shot; it opens the video (cold open) and fills the thumbnail.
+    ranked = sorted(rt.local.values(), key=lambda m: (insights.get(m.ref.id, {}).get("quality", 0), m.ref.kind == "image"),
+                    reverse=True)
+    hero = ranked[0] if ranked else None
+    hero_still: Path | None = None
+    if hero is not None:
+        if hero.ref.kind == "image":
+            hero_still = hero.path
+        elif hero.frames:
+            hero_still = min(hero.frames, key=lambda f: abs(f[0] - insights.get(hero.ref.id, {}).get("highlight_start", 0)))[1]
+    hero_focus = focus_of(hero.ref.id) if hero else (0.5, 0.45)
+
     clips: list[Clip] = []
+    layer_fns: list[Any] = []  # per clip: fn(duration) -> list[Layer]
     section_first: dict[int, int] = {}
 
-    photos = [m for m in rt.local.values() if m.ref.kind == "image"]
-    cover_media = max(photos, key=lambda m: insights.get(m.ref.id, {}).get("quality", 0), default=None)
-    cover = cover_media.path if cover_media else None
-    if cover is None:
-        vids = [m for m in rt.local.values() if m.frames]
-        cover = vids[0].frames[len(vids[0].frames) // 2][1] if vids else None
+    if s.include_title_card and hero is not None:
+        dur = TITLE_SECONDS + 0.4
+        if hero.ref.kind == "image":
+            clip = Clip("image", hero.path, dur, motion=0, focus=hero_focus)
+        else:
+            start = float(insights.get(hero.ref.id, {}).get("highlight_start", 0))
+            start = _clamp(start, 0, max(0, hero.duration - 2))
+            clip = Clip("video", hero.path, min(dur, max(hero.duration - start, 1.5)), clip_start=start,
+                        source_duration=hero.duration, has_audio=hero.has_audio, focus=hero_focus)
+        clips.append(clip)
+        layer_fns.append(lambda d: [O.HookTitle(0.05, d - 0.05, theme, size, title=plan.title, subtitle=plan.subtitle,
+                                                emphasis=plan.title_emphasis)] if texts else [])
 
-    if s.include_title_card:
-        card = graphics.title_card(gfx / "title.jpg", (W, H), plan.title, plan.subtitle, cover, s.caption_style)
-        clips.append(Clip("card", card, TITLE_SECONDS, motion=0))
-
-    # Scale shot lengths towards the target duration.
     raw_total = sum(sh["seconds"] for sec in sections for sh in sec["shots"])
-    budget = max(10.0, s.target_duration - (TITLE_SECONDS if s.include_title_card else 0) - (OUTRO_SECONDS if s.include_outro else 0))
+    budget = max(10.0, s.target_duration - (clips[0].duration if clips else 0) - (OUTRO_SECONDS if s.include_outro else 0))
     factor = _clamp(budget / raw_total, 0.6, 1.8) if raw_total > 0 else 1.0
-
-    voice = rt.extras.get("voice", [])
-    motion = 0
+    min_shot = 1.8
+    motion = 1
     for si, sec in enumerate(sections):
-        section_clips: list[Clip] = []
-        for n, sh in enumerate(sec["shots"]):
+        psec = plan.sections[si] if si < len(plan.sections) else None
+        first = True
+        section_clips: list[tuple[Clip, Any]] = []
+        for sh in sec["shots"]:
             lm = rt.local.get(sh["media_id"])
             if not lm:
                 continue
-            caption = sh["caption"].strip() if sh.get("caption") else ""
-            kicker = (plan.sections[si].kicker if si < len(plan.sections) else None) if n == 0 else None
-            overlay = graphics.caption_overlay(gfx / f"ov_{si}_{n}.png", (W, H), caption or None, s.caption_style,
-                                               s.caption_position, kicker=kicker or None)
+            focus = focus_of(lm.ref.id)
             if lm.ref.kind == "image":
-                section_clips.append(Clip("image", lm.path, _clamp(sh["seconds"] * factor, max(min_shot, 2.2), 8.0),
-                                          overlay, motion=motion, section_index=si))
+                clip = Clip("image", lm.path, _clamp(sh["seconds"] * factor, 2.4, 7.0), motion=motion, section_index=si,
+                            focus=focus)
                 motion += 1
             else:
                 start = _clamp(float(sh.get("clip_start") or 0), 0, max(0, lm.duration - min_shot))
                 avail = lm.duration - start
                 dur = _clamp(sh["seconds"] * factor, min(min_shot, avail), min(s.max_clip_seconds, avail))
-                section_clips.append(Clip("video", lm.path, max(dur, 0.8), overlay, clip_start=start,
-                                          source_duration=lm.duration, has_audio=lm.has_audio, section_index=si))
+                clip = Clip("video", lm.path, max(dur, 0.8), clip_start=start, source_duration=lm.duration,
+                            has_audio=lm.has_audio, section_index=si, focus=focus)
+            section_clips.append((clip, _shot_layers(sh, first, psec, sec, theme, size, texts, use_subs, s)))
+            first = False
         if not section_clips:
             continue
-        # Make sure the section is long enough for its narration.
+        # Make the section long enough for its narration.
         vpath = voice[si] if si < len(voice) else None
         if vpath:
-            needed = audio.wav_duration(Path(vpath)) + 0.9
-            have = sum(c.duration for c in section_clips) - spec.overlap * (len(section_clips) - 1)
+            # narration starts 0.35 s in; leave room for the outgoing transition (up to 0.7 s) + a breath
+            needed = audio.wav_duration(Path(vpath)) + 0.35 + 0.7 + 0.4
+            have = sum(c.length for c, _ in section_clips) - 0.2 * (len(section_clips) - 1)
             if needed > have:
                 extra = needed - have
-                images = [c for c in section_clips if c.kind == "image"]
+                images = [c for c, _ in section_clips if c.kind == "image"]
                 if images:
                     for c in images:
                         c.duration += extra / len(images)
                 else:
-                    section_clips[-1].hold = extra
+                    section_clips[-1][0].hold = extra
         section_first[si] = len(clips)
-        clips.extend(section_clips)
+        for c, fn in section_clips:
+            clips.append(c)
+            layer_fns.append(fn)
 
     if s.include_outro:
-        outro = graphics.title_card(gfx / "outro.jpg", (W, H), s.outro_text or plan.outro_text or "Thanks for watching",
-                                    plan.title, cover, s.caption_style)
-        clips.append(Clip("card", outro, OUTRO_SECONDS, motion=1))
-    return clips, section_first, cover
+        outro_text = s.outro_text or plan.outro_text or "Thanks for watching"
+        sub = f"Subscribe to {s.channel_name}" if s.channel_name else "Like · Comment · Subscribe"
+        clips.append(Clip("card", hero_still or (clips[0].src if clips else None), OUTRO_SECONDS + 0.6, motion=0,
+                          focus=hero_focus))
+        layer_fns.append(lambda d: [O.EndScreen(0.0, d, theme if texts else O.get_theme("bold"), size, text=outro_text,
+                                                sub=sub)])
+    if clips and clips[-1].kind == "card" and clips[-1].src is None:
+        clips.pop()
+        layer_fns.pop()
+
+    boundaries = plan_boundaries(clips, spec)
+    bpm = rt.extras.get("bpm")
+    beat_synced = bool(s.beat_sync and bpm)
+    if beat_synced:
+        beat = 60.0 / float(bpm)
+        for i, clip in enumerate(clips[:-1]):
+            b = boundaries[i].duration
+            eff = clip.length - b
+            beats = max(2, math.ceil(eff / beat - 0.3))
+            target = beats * beat + b - clip.hold
+            if clip.kind == "video" and clip.source_duration:
+                avail = clip.source_duration - clip.clip_start
+                if target > avail:
+                    target = max(beat, math.floor((avail - b) / beat) * beat) + b
+                    clip.hold = 0.0
+            clip.duration = round(max(target, b + 0.5), 3)
+    timeline = layout_timeline(clips, spec, boundaries)
+
+    # Render every shot's animated graphics track.
+    n_layers = 0
+    for i, (clip, fn) in enumerate(zip(clips, layer_fns)):
+        layers = fn(clip.length) if fn else []
+        n_layers += len(layers)
+        if layers:
+            clip.overlay = O.render_track(layers, clip.length, size, spec.fps, gfx / f"shot{i:03d}", f"s{i:03d}")
+
+    voice_parts: list[tuple[float, Path]] = []
+    all_words: list[tuple[str, float, float]] = []
+    for si, path in enumerate(voice):
+        if path and si in section_first:
+            t0 = timeline.starts[section_first[si]] + 0.35
+            voice_parts.append((t0, Path(path)))
+            if use_subs:
+                narration = sections[si]["narration"]
+                all_words += [(w, a + t0, b + t0) for w, a, b in timing.word_timings(narration, Path(path))]
+    subtitles = None
+    # Subtitles never run over the end screen (it has its own text and the subscribe button).
+    subs_end = timeline.starts[-1] if clips and clips[-1].kind == "card" else timeline.total
+    all_words = [(w, a, min(b, subs_end - 0.05)) for w, a, b in all_words if a < subs_end - 0.15]
+    if all_words:
+        subtitles = O.render_track([O.Subtitles(0, subs_end, theme, size, words=all_words)], timeline.total, size,
+                                   spec.fps, gfx / "subs", "subs")
+
+    sfx_parts: list[tuple[float, Path, float]] = []
+    if s.sfx and spec.uses_xfade:
+        whoosh = audio.generate_whoosh(gfx / "whoosh.wav")
+        for i, b in enumerate(boundaries):
+            if b.duration >= 0.5:  # section-level transitions only
+                at = timeline.starts[i + 1] + b.duration / 2 - audio.WHOOSH_PEAK
+                sfx_parts.append((max(0.0, at), whoosh, 0.32))
+
+    chapters: list[tuple[float, str]] = [(0.0, "Intro")] if clips and clips[0].section_index is None else []
+    for si, idx in sorted(section_first.items()):
+        chapters.append((timeline.starts[idx], sections[si]["heading"]))
+    if chapters:
+        chapters[0] = (0.0, chapters[0][1])
+    return Edit(timeline, voice_parts, sfx_parts, subtitles, chapters, hero_still, hero_focus, n_layers, len(all_words),
+                beat_synced)
+
+
+def _shot_layers(sh: dict, first: bool, psec, sec: dict, theme, size, texts: bool, subs_on: bool, s):
+    """Graphics for one shot, created once its final duration is known."""
+    if not texts:
+        return None
+    kind, caption, sub = sh.get("overlay", "none"), (sh.get("caption") or "").strip(), (sh.get("subline") or "").strip()
+    emphasis = (sh.get("emphasis") or "").strip()
+    heading = sec.get("heading") or (psec.heading if psec else "")
+    kicker = psec.kicker if psec else ""
+    heading_emph = psec.heading_emphasis if psec else ""
+
+    def make(d: float):
+        layers = []
+        if d < 1.4:
+            return layers
+        if first:
+            layers.append(O.ChapterTitle(0.12, min(d - 0.15, 2.9), theme, size, kicker=kicker, title=heading,
+                                         emphasis=heading_emph))
+            if kind == "location" and caption:
+                layers.append(O.LocationTag(0.5, d - 0.2, theme, size, place=caption, region=sub))
+            return layers
+        if kind == "caption" and caption:
+            pos = "top" if subs_on else s.caption_position
+            layers.append(O.Caption(0.25, d - 0.15, theme, size, text=caption, emphasis=emphasis, position=pos))
+        elif kind == "lower_third" and caption:
+            layers.append(O.LowerThird(0.3, d - 0.2, theme, size, title=caption, sub=sub))
+        elif kind == "location" and caption:
+            layers.append(O.LocationTag(0.25, d - 0.2, theme, size, place=caption, region=sub))
+        elif kind == "callout" and caption:
+            layers.append(O.Callout(0.35, d - 0.25, theme, size, text=caption))
+        return layers
+
+    return make
+
+
+def _fmt_ts(t: float) -> str:
+    t = int(t)
+    return f"{t // 3600}:{t % 3600 // 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60}:{t % 60:02d}"
+
+
+def _youtube_text(plan: StoryPlan, meta: ArticleExtras, chapters: list) -> str:
+    lines = [f"TITLE\n{plan.title}", "", "DESCRIPTION", meta.youtube_description.strip(), ""]
+    if chapters:
+        lines.append("Chapters")
+        lines += [f"{_fmt_ts(t)} {name}" for t, name in chapters]
+        lines.append("")
+    if meta.tags:
+        lines += ["TAGS", ", ".join(meta.tags), "",
+                  " ".join("#" + re.sub(r"[^\w]", "", t) for t in meta.tags[:3] if re.sub(r"[^\w]", "", t))]
+    return "\n".join(lines).strip() + "\n"
 
 
 # ------------------------------------------------------------ article

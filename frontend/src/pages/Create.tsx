@@ -16,10 +16,10 @@ interface Item {
 }
 
 const PRESETS: { name: string; hint: string; patch: Partial<BlogSettings> }[] = [
-  { name: "YouTube vlog", hint: "16:9 · 90s · voiceover", patch: { aspect_ratio: "16:9", target_duration: 90, caption_style: "bold", transition: "crossfade", voiceover: true } },
-  { name: "Reel / Short", hint: "9:16 · 30s · punchy", patch: { aspect_ratio: "9:16", target_duration: 30, caption_style: "bold", transition: "slide", music_mood: "upbeat", voiceover: false } },
-  { name: "Cinematic story", hint: "16:9 · 2 min · moody", patch: { aspect_ratio: "16:9", target_duration: 120, caption_style: "cinematic", transition: "fade_black", tone: "cinematic", music_mood: "epic" } },
-  { name: "Square post", hint: "1:1 · 45s · minimal", patch: { aspect_ratio: "1:1", target_duration: 45, caption_style: "minimal", transition: "crossfade" } },
+  { name: "YouTube vlog", hint: "16:9 · 90s · voice + subtitles", patch: { aspect_ratio: "16:9", target_duration: 90, caption_style: "bold", transition: "smart", voiceover: true, subtitles: true, color_look: "auto", letterbox: false } },
+  { name: "Reel / Short", hint: "9:16 · 30s · pop captions", patch: { aspect_ratio: "9:16", target_duration: 30, caption_style: "pop", transition: "smart", music_mood: "upbeat", voiceover: true, subtitles: true, color_look: "vibrant", letterbox: false } },
+  { name: "Cinematic story", hint: "16:9 · 2 min · letterbox", patch: { aspect_ratio: "16:9", target_duration: 120, caption_style: "cinematic", transition: "smart", tone: "cinematic", music_mood: "epic", color_look: "cinematic", letterbox: true } },
+  { name: "Clean square", hint: "1:1 · 45s · minimal", patch: { aspect_ratio: "1:1", target_duration: 45, caption_style: "minimal", transition: "smart", color_look: "natural", letterbox: false } },
 ];
 
 const DRAFT_KEY = "vlogsmith.settings";
@@ -268,24 +268,41 @@ export default function CreatePage() {
                   <Segmented value={settings.fps} options={[24, 30] as const} onChange={(v) => set("fps", v)} labels={{ 24: "24 fps", 30: "30 fps" }} />
                 </Field>
               </div>
-              <Field label="Captions">
-                <Segmented value={settings.caption_style} options={["bold", "minimal", "cinematic", "none"] as const} onChange={(v) => set("caption_style", v)} />
+              <Field label="Motion graphics style" hint="Animated titles, captions, location tags, lower thirds and end screen.">
+                <Segmented value={settings.caption_style} options={["bold", "pop", "minimal", "cinematic", "none"] as const}
+                  onChange={(v) => set("caption_style", v)}
+                  labels={{ bold: "Creator", pop: "Pop", minimal: "Clean", cinematic: "Cinematic", none: "No text" }} />
               </Field>
               {settings.caption_style !== "none" && (
-                <Field label="Caption position">
+                <Field label="Caption position" hint={settings.voiceover && settings.subtitles ? "Captions move to the top while subtitles are on." : undefined}>
                   <Segmented value={settings.caption_position} options={["top", "center", "bottom"] as const} onChange={(v) => set("caption_position", v)} />
                 </Field>
               )}
+              <Field label="Colour grade">
+                <select className="field capitalize" value={settings.color_look} onChange={(e) => set("color_look", e.target.value)}>
+                  {(config.options.looks ?? ["auto"]).map((l) => <option key={l} value={l}>{l === "auto" ? "Auto (AI picks)" : l === "bw" ? "Black & white" : l}</option>)}
+                </select>
+              </Field>
+              <Field label="Framing">
+                <Segmented value={settings.framing} options={["smart_crop", "fit_blur"] as const} onChange={(v) => set("framing", v)}
+                  labels={{ smart_crop: "Smart crop (AI focus)", fit_blur: "Fit + blur" }} />
+              </Field>
               <Field label="Transitions">
                 <select className="field capitalize" value={settings.transition} onChange={(e) => set("transition", e.target.value)}>
-                  {config.options.transitions.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
+                  {config.options.transitions.map((t) => <option key={t} value={t}>{t === "smart" ? "Smart (editor's choice)" : t.replace("_", " ")}</option>)}
                 </select>
               </Field>
               <Slider label="Max seconds per video clip" value={settings.max_clip_seconds} min={2} max={30} step={1}
                 onChange={(v) => set("max_clip_seconds", v)} format={(v) => `${v}s`} />
               <Toggle label="Ken Burns motion on photos" checked={settings.ken_burns} onChange={(v) => set("ken_burns", v)} />
-              <Toggle label="Title card" checked={settings.include_title_card} onChange={(v) => set("include_title_card", v)} />
-              <Toggle label="Outro card" checked={settings.include_outro} onChange={(v) => set("include_outro", v)} />
+              <Toggle label="Cut on the beat" hint="Shot lengths snap to the soundtrack tempo" checked={settings.beat_sync} onChange={(v) => set("beat_sync", v)} />
+              <Toggle label="Cinematic letterbox" checked={settings.letterbox} onChange={(v) => set("letterbox", v)} />
+              <Toggle label="Cold open with animated title" hint="Starts on your best shot" checked={settings.include_title_card} onChange={(v) => set("include_title_card", v)} />
+              <Toggle label="End screen with subscribe animation" checked={settings.include_outro} onChange={(v) => set("include_outro", v)} />
+              {settings.include_outro && (
+                <input className="field" maxLength={60} placeholder="Channel name (e.g. @ujjwaltravels)" value={settings.channel_name || ""}
+                  onChange={(e) => set("channel_name", e.target.value)} />
+              )}
               {settings.include_outro && (
                 <input className="field" maxLength={120} placeholder="Outro text (e.g. Follow for part 2!)" value={settings.outro_text || ""}
                   onChange={(e) => set("outro_text", e.target.value)} />
@@ -321,6 +338,10 @@ export default function CreatePage() {
                 </>
               )}
               <Toggle label="AI voiceover narration" hint="Gemini TTS reads a script written for each section" checked={settings.voiceover} onChange={(v) => set("voiceover", v)} />
+              {settings.voiceover && (
+                <Toggle label="Animated subtitles" hint="Word-by-word highlight synced to the voice" checked={settings.subtitles} onChange={(v) => set("subtitles", v)} />
+              )}
+              <Toggle label="Transition sound effects" hint="Whooshes on chapter changes" checked={settings.sfx} onChange={(v) => set("sfx", v)} />
               {settings.voiceover && (
                 <Field label="Voice">
                   <select className="field" value={settings.voice} onChange={(e) => set("voice", e.target.value)}>

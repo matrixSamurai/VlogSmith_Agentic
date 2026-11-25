@@ -57,6 +57,42 @@ def wav_duration(path: Path) -> float:
         return wf.getnframes() / float(wf.getframerate())
 
 
+# ------------------------------------------------------------------- SFX
+WHOOSH_PEAK = 0.42  # seconds into the whoosh file where it is loudest
+
+
+def generate_whoosh(out: Path, seed: int = 3) -> Path:
+    """Airy transition whoosh: band-passed noise with a rising-then-falling sweep."""
+    rng = np.random.default_rng(seed)
+    n = int(0.8 * SR)
+    t = np.arange(n) / SR
+    noise = rng.standard_normal(n)
+    env = np.exp(-((t - WHOOSH_PEAK) ** 2) / (2 * 0.11 ** 2))
+    # Time-varying one-pole low-pass: cutoff sweeps up to the peak and back down.
+    cutoff = 400 + 5200 * env
+    alpha = 1 - np.exp(-2 * np.pi * cutoff / SR)
+    y = np.zeros(n)
+    acc = 0.0
+    for i in range(n):
+        acc += alpha[i] * (noise[i] - acc)
+        y[i] = acc
+    y = (y - np.convolve(y, np.ones(24) / 24, mode="same")) * env  # remove rumble
+    y /= max(1e-6, np.abs(y).max())
+    pan = 0.5 + 0.45 * np.tanh((t - WHOOSH_PEAK) * 8)  # sweeps left -> right
+    stereo = np.stack([y * (1 - pan), y * pan], axis=1) * 0.9
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(out), "wb") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(SR)
+        wf.writeframes((stereo * 32767).astype("<i2").tobytes())
+    return out
+
+
+def mood_bpm(mood: str) -> float:
+    return float(MOODS.get(mood, MOODS["calm"])[0])
+
+
 # ------------------------------------------------------------- Lyria (Vertex AI)
 async def generate_lyria(prompt: str, out: Path, project: str, location: str, model: str) -> Path:
     """Vertex AI Lyria returns a ~30 s 48 kHz WAV clip; the mixer loops it."""

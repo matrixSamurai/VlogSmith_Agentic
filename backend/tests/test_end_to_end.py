@@ -131,6 +131,11 @@ async def test_full_pipeline(env, transition, voiceover, aspect):
         names = zipfile.ZipFile(io.BytesIO(pkg.content)).namelist()
         assert {"vlog.mp4", "article.html", "article.md", "media/m1.jpg", "media/m3.mp4"} <= set(names)
 
+        yt = (await client.get(f"/api/jobs/{job['id']}/files/youtube.txt")).text
+        assert "Chasing Light in the Alps" in yt and "0:00 Intro" in yt and "Come ride the rails." in yt
+        assert "Motion graphics:" in events
+        if voiceover:
+            assert "subtitle words" in events
         assert (await client.get(f"/api/jobs/{job['id']}/files/../../t.db")).status_code == 404
 
 

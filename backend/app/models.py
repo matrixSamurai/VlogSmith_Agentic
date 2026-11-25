@@ -14,7 +14,8 @@ JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 TONES = ["casual", "inspirational", "professional", "humorous", "cinematic", "educational", "romantic", "adventurous"]
 MUSIC_MOODS = ["auto", "upbeat", "calm", "epic", "romantic", "adventurous", "dreamy", "corporate", "playful"]
 VOICES = ["Kore", "Puck", "Charon", "Aoede", "Fenrir", "Leda", "Orus", "Zephyr"]
-TRANSITIONS = ["crossfade", "fade_black", "slide", "zoom", "wipe", "none"]
+TRANSITIONS = ["smart", "crossfade", "fade_black", "slide", "zoom", "wipe", "none"]
+LOOKS = ["auto", "natural", "warm", "cinematic", "vibrant", "moody", "bw", "none"]
 
 
 def new_id(prefix: str) -> str:
@@ -39,9 +40,16 @@ class BlogSettings(BaseModel):
     aspect_ratio: Literal["16:9", "9:16", "1:1"] = "16:9"
     resolution: Literal["720p", "1080p"] = "1080p"
     fps: Literal[24, 30] = 30
-    caption_style: Literal["bold", "minimal", "cinematic", "none"] = "bold"
+    caption_style: Literal["bold", "minimal", "cinematic", "pop", "none"] = "bold"
     caption_position: Literal["bottom", "center", "top"] = "bottom"
-    transition: Literal[tuple(TRANSITIONS)] = "crossfade"  # type: ignore[valid-type]
+    subtitles: bool = Field(default=True, description="Burn in word-highlighted subtitles (needs voiceover).")
+    color_look: Literal[tuple(LOOKS)] = "auto"  # type: ignore[valid-type]
+    letterbox: bool = False
+    framing: Literal["smart_crop", "fit_blur"] = "smart_crop"
+    beat_sync: bool = True
+    sfx: bool = True
+    channel_name: str | None = Field(default=None, max_length=60)
+    transition: Literal[tuple(TRANSITIONS)] = "smart"  # type: ignore[valid-type]
     transition_duration: float = Field(default=0.6, ge=0.2, le=1.5)
     ken_burns: bool = True
     include_title_card: bool = True
@@ -65,7 +73,7 @@ class BlogSettings(BaseModel):
     review_rounds: int = Field(default=1, ge=0, le=3)
     quality: Literal["fast", "balanced", "high"] = "balanced"
 
-    @field_validator("title", "outro_text", "audience", mode="before")
+    @field_validator("title", "outro_text", "audience", "channel_name", mode="before")
     @classmethod
     def _blank_to_none(cls, v):
         if isinstance(v, str) and not v.strip():
@@ -136,6 +144,7 @@ class JobOutputs(BaseModel):
     article_html: str | None = None
     article_md: str | None = None
     package: str | None = None
+    youtube: str | None = None
 
 
 class Job(BaseModel):

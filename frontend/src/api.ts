@@ -10,7 +10,14 @@ export interface BlogSettings {
   aspect_ratio: "16:9" | "9:16" | "1:1";
   resolution: "720p" | "1080p";
   fps: 24 | 30;
-  caption_style: "bold" | "minimal" | "cinematic" | "none";
+  caption_style: "bold" | "minimal" | "cinematic" | "pop" | "none";
+  subtitles: boolean;
+  color_look: string;
+  letterbox: boolean;
+  framing: "smart_crop" | "fit_blur";
+  beat_sync: boolean;
+  sfx: boolean;
+  channel_name?: string | null;
   caption_position: "bottom" | "center" | "top";
   transition: string;
   transition_duration: number;
@@ -38,7 +45,7 @@ export interface ServerConfig {
   llm_configured: boolean;
   vertex_enabled: boolean;
   defaults: BlogSettings;
-  options: { tones: string[]; music_moods: string[]; voices: string[]; transitions: string[] };
+  options: { tones: string[]; music_moods: string[]; voices: string[]; transitions: string[]; looks: string[] };
   limits: { max_files: number; max_mb: Record<"image" | "video" | "audio", number> };
   accept: Record<"image" | "video" | "audio", string[]>;
 }
@@ -52,7 +59,7 @@ export interface Job {
   progress: number;
   settings: BlogSettings;
   media: MediaRef[];
-  outputs: { video?: string; thumbnail?: string; article_html?: string; article_md?: string; package?: string };
+  outputs: { video?: string; thumbnail?: string; article_html?: string; article_md?: string; package?: string; youtube?: string };
   title?: string | null;
   summary?: string | null;
   duration?: number | null;
