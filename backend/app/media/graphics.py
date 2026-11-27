@@ -52,19 +52,20 @@ def youtube_thumbnail(out: Path, hero: Path | None, text: str, emphasis: str = "
     th = O.get_theme(theme if theme in O.THEMES else "bold")
     # Text sits on the side opposite the subject so faces / landmarks stay visible.
     text_left = focus[0] >= 0.5
-    words = O._tokens(text, emphasis, True)
+    words = O._tokens(text, emphasis, False)
     if words and not any(e for _, e in words):  # always pop one word: the last one
         words[-1] = (words[-1][0], True)
-    kind = "anton" if th.name == "pop" else "black"
-    size_px = int(H * 0.17)
-    st = O.WordStyle(kind, size_px, (255, 255, 255, 255), (0, 0, 0, 255), int(size_px * 0.1), int(size_px * 0.08))
-    em = O.WordStyle(kind, size_px, th.emph if th.emph_mode == "color" else (255, 214, 0, 255), (0, 0, 0, 255),
-                     int(size_px * 0.1), int(size_px * 0.08))
+    kind = th.display  # same bold script as the video titles
+    size_px = int(H * 0.2)
+    stroke = lambda px: int(px * 0.06)  # noqa: E731
+    st = O.WordStyle(kind, size_px, (255, 255, 255, 255), (0, 0, 0, 255), stroke(size_px), int(size_px * 0.08))
+    em = O.WordStyle(kind, size_px, th.emph if th.emph_mode == "color" else (255, 208, 64, 255), (0, 0, 0, 255),
+                     stroke(size_px), int(size_px * 0.08))
     placed, bw, bh = O.layout(words, st, em, W * 0.56, align="left", line_gap=-0.12, max_lines=3)
     while bh > H * 0.8 and size_px > 40:  # shrink until it fits
         size_px = int(size_px * 0.88)
-        st = O.WordStyle(kind, size_px, st.fill, st.stroke, int(size_px * 0.1), int(size_px * 0.08))
-        em = O.WordStyle(kind, size_px, em.fill, em.stroke, int(size_px * 0.1), int(size_px * 0.08))
+        st = O.WordStyle(kind, size_px, st.fill, st.stroke, stroke(size_px), int(size_px * 0.08))
+        em = O.WordStyle(kind, size_px, em.fill, em.stroke, stroke(size_px), int(size_px * 0.08))
         placed, bw, bh = O.layout(words, st, em, W * 0.56, align="left", line_gap=-0.12, max_lines=3)
     side = O.scrim(size, "left", 150)
     canvas.alpha_composite(side if text_left else side.transpose(Image.Transpose.FLIP_LEFT_RIGHT))

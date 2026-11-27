@@ -18,8 +18,9 @@ Google's Agent Development Kit (ADK 2.x `Workflow` graph API) and Gemini produce
 The overlay engine is in `backend/app/media/overlays.py`. Each graphic is a layer that draws itself at time *t*
 with easing (pop, slide, wipe, word-by-word). A shot's layers are rendered into PNG keyframes, one per visual change,
 and FFmpeg overlays them through the concat demuxer, so animations are frame-accurate and cheap. There are four
-themes: **Creator** (bold, outlined, yellow keyword), **Pop** (condensed, colourful stickers), **Clean** (minimal,
-keyword box) and **Cinematic** (serif, italic gold accent, optional letterbox). Subtitle word timings are estimated
+themes, each pairing a bold script display face with Montserrat for labels and subtitles: **Creator** (Kaushan Script
+brush, gold keyword), **Pop** (Pacifico on colourful sticker strips), **Clean** (Lobster with a keyword box) and
+**Cinematic** (Yellowtail, gold accent, optional letterbox). All fonts are open-licensed (OFL / Apache). Subtitle word timings are estimated
 from the TTS audio's speech segments (`media/timing.py`). Text in Devanagari and other non-Latin scripts falls back
 to Noto fonts.
 

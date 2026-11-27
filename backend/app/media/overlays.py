@@ -23,13 +23,22 @@ from ..config import FONTS_DIR
 RGBA = tuple[int, int, int, int]
 
 # ----------------------------------------------------------------------------- fonts
-_FILES = {
-    "black": "Poppins-Black.ttf", "extrabold": "Poppins-ExtraBold.ttf", "bold": "Poppins-Bold.ttf",
-    "semibold": "Poppins-SemiBold.ttf", "medium": "Poppins-Medium.ttf", "regular": "Poppins-Regular.ttf",
-    "anton": "Anton-Regular.ttf", "serif": "PlayfairDisplay.ttf", "serif_italic": "PlayfairDisplay-Italic.ttf",
+_FILES: dict[str, tuple[str, str | None]] = {
+    # Bold script display faces (titles, captions, tags, stickers)
+    "kaushan": ("KaushanScript-Regular.ttf", None), "pacifico": ("Pacifico-Regular.ttf", None),
+    "lobster": ("Lobster-Regular.ttf", None), "yellowtail": ("Yellowtail-Regular.ttf", None),
+    # Clean sans partner (labels, descriptors, subtitles, buttons)
+    "mont_medium": ("Montserrat.ttf", "Medium"), "mont_semibold": ("Montserrat.ttf", "SemiBold"),
+    "mont_bold": ("Montserrat.ttf", "Bold"), "mont_extrabold": ("Montserrat.ttf", "ExtraBold"),
+    "mont_black": ("Montserrat.ttf", "Black"),
+    # Legacy faces
+    "black": ("Poppins-Black.ttf", None), "extrabold": ("Poppins-ExtraBold.ttf", None), "bold": ("Poppins-Bold.ttf", None),
+    "semibold": ("Poppins-SemiBold.ttf", None), "medium": ("Poppins-Medium.ttf", None),
+    "regular": ("Poppins-Regular.ttf", None), "anton": ("Anton-Regular.ttf", None),
 }
-_WEIGHT = {"black": "Black", "extrabold": "ExtraBold", "bold": "Bold", "semibold": "SemiBold", "medium": "Medium",
-           "regular": "Regular", "anton": "Black", "serif": "Bold", "serif_italic": "Bold Italic"}
+SCRIPT_KINDS = {"kaushan", "pacifico", "lobster", "yellowtail"}
+_NOTO_WEIGHT = {"mont_medium": "Medium", "mont_semibold": "SemiBold", "mont_bold": "Bold", "mont_extrabold": "ExtraBold",
+                "mont_black": "Black", "medium": "Medium", "semibold": "SemiBold", "regular": "Regular"}
 
 
 def _script(text: str) -> str:
@@ -42,13 +51,12 @@ def _script(text: str) -> str:
 
 @lru_cache(maxsize=256)
 def _font(kind: str, size: int, script: str = "latin") -> ImageFont.FreeTypeFont:
-    if script == "deva":
-        path, variation = FONTS_DIR / "NotoSansDevanagari.ttf", _WEIGHT.get(kind, "Bold").split()[0]
-    elif script == "noto":
-        path, variation = FONTS_DIR / "NotoSans.ttf", _WEIGHT.get(kind, "Bold").split()[0]
+    if script in ("deva", "noto"):  # script fonts are Latin-only: fall back to Noto for other writing systems
+        path = FONTS_DIR / ("NotoSansDevanagari.ttf" if script == "deva" else "NotoSans.ttf")
+        variation = _NOTO_WEIGHT.get(kind, "Bold")
     else:
-        path = FONTS_DIR / _FILES[kind]
-        variation = _WEIGHT[kind] if kind.startswith("serif") else None
+        file, variation = _FILES.get(kind, _FILES["mont_bold"])
+        path = FONTS_DIR / file
     try:
         f = ImageFont.truetype(str(path), max(8, size))
     except OSError:
@@ -90,18 +98,22 @@ class Theme:
 
 
 THEMES: dict[str, Theme] = {
-    "bold": Theme("bold", "black", "extrabold", "semibold", True, (255, 255, 255, 255), (0, 0, 0, 255), 0.085,
-                  "color", (255, 214, 0, 255), (0, 0, 0, 255), (255, 59, 48, 255), (12, 12, 16, 215),
-                  ((255, 214, 0, 255),), "color", (255, 214, 0, 255)),
-    "minimal": Theme("minimal", "bold", "semibold", "medium", False, (255, 255, 255, 255), None, 0.0,
+    # Creator: bold brush script, warm-yellow keyword, thin dark outline + soft shadow.
+    "bold": Theme("bold", "kaushan", "kaushan", "mont_bold", False, (255, 255, 255, 255), (12, 10, 8, 235), 0.035,
+                  "color", (255, 208, 64, 255), (0, 0, 0, 255), (255, 72, 56, 255), (12, 12, 16, 215),
+                  ((255, 208, 64, 255),), "color", (255, 208, 64, 255)),
+    # Clean: Lobster with a coral keyword box.
+    "minimal": Theme("minimal", "lobster", "lobster", "mont_semibold", False, (255, 255, 255, 255), (0, 0, 0, 150), 0.02,
                      "box", (255, 90, 60, 255), (255, 255, 255, 255), (255, 90, 60, 255), (14, 14, 18, 190),
                      ((255, 255, 255, 255),), "box", (255, 255, 255, 235)),
-    "cinematic": Theme("cinematic", "serif", "serif", "medium", False, (250, 244, 232, 255), None, 0.0,
-                       "italic", (232, 194, 122, 255), (20, 16, 10, 255), (232, 194, 122, 255), (10, 9, 8, 170),
-                       ((232, 194, 122, 255),), "color", (232, 194, 122, 255), 0.28),
-    "pop": Theme("pop", "anton", "anton", "bold", True, (255, 255, 255, 255), (0, 0, 0, 255), 0.06,
+    # Cinematic: elegant Yellowtail, gold keyword, tracked sans labels.
+    "cinematic": Theme("cinematic", "yellowtail", "yellowtail", "mont_medium", False, (250, 244, 232, 255), None, 0.0,
+                       "color", (236, 198, 120, 255), (20, 16, 10, 255), (236, 198, 120, 255), (10, 9, 8, 170),
+                       ((236, 198, 120, 255),), "color", (236, 198, 120, 255), 0.32),
+    # Pop: chunky rounded Pacifico on colourful sticker strips.
+    "pop": Theme("pop", "pacifico", "pacifico", "mont_extrabold", False, (255, 255, 255, 255), (20, 10, 30, 230), 0.03,
                  "box", (255, 61, 127, 255), (255, 255, 255, 255), (60, 240, 110, 255), (20, 20, 28, 220),
-                 ((255, 61, 127, 255), (255, 214, 0, 255), (0, 200, 255, 255), (130, 90, 255, 255)),
+                 ((255, 61, 127, 255), (255, 196, 0, 255), (0, 190, 255, 255), (130, 90, 255, 255)),
                  "box", (60, 240, 110, 255)),
 }
 
@@ -183,12 +195,15 @@ def word_image(text: str, st: WordStyle) -> tuple[Image.Image, int, int, int]:
         adv = int(sum(f.getlength(c) for c in text) + st.tracking * st.size * max(len(text) - 1, 0))
     else:
         adv = int(math.ceil(f.getlength(text)))
+    if st.kind in SCRIPT_KINDS:  # swashes extend past the advance width and below the baseline
+        l, _, r, _ = f.getbbox(text)
+        adv = max(adv, int(math.ceil(r - min(l, 0)))) + int(st.size * 0.06)
     sw = st.stroke_w
     box_pad_x = int(st.size * 0.22) if st.box else 0
     box_pad_y = int(st.size * 0.06) if st.box else 0
     content_w = adv + 2 * sw + 2 * box_pad_x
     line_h = asc + desc + 2 * sw + 2 * box_pad_y
-    pad = max(st.shadow * 3, 2)
+    pad = max(st.shadow * 3, 2) + (int(st.size * 0.07) if st.kind in ("yellowtail", "lobster") else 0)
     img = Image.new("RGBA", (content_w + 2 * pad, line_h + 2 * pad), (0, 0, 0, 0))
 
     def draw_text(d: ImageDraw.ImageDraw, ox: int, oy: int, fill, stroke=None, swidth=0):
@@ -200,7 +215,7 @@ def word_image(text: str, st: WordStyle) -> tuple[Image.Image, int, int, int]:
         else:
             d.text((ox, oy), text, font=f, fill=fill, anchor="la", stroke_width=swidth, stroke_fill=stroke)
 
-    tx, ty = pad + sw + box_pad_x, pad + sw + box_pad_y
+    tx, ty = pad + sw + box_pad_x + (int(st.size * 0.03) if st.kind in SCRIPT_KINDS else 0), pad + sw + box_pad_y
     if st.shadow:
         sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
         sd = ImageDraw.Draw(sh)
@@ -209,6 +224,8 @@ def word_image(text: str, st: WordStyle) -> tuple[Image.Image, int, int, int]:
                                  radius=int(st.size * 0.18), fill=(0, 0, 0, 120))
         else:
             draw_text(sd, tx, ty + max(2, st.size // 28), (0, 0, 0, 170), (0, 0, 0, 170), sw)
+            if st.kind in ("yellowtail", "lobster"):  # thin scripts: wide soft glow so they read on bright skies
+                draw_text(sd, tx, ty, (0, 0, 0, 150), (0, 0, 0, 150), max(sw, int(st.size * 0.07)))
         img = Image.alpha_composite(img, sh.filter(ImageFilter.GaussianBlur(st.shadow)))
     d = ImageDraw.Draw(img)
     if st.box:
@@ -232,7 +249,7 @@ class PlacedWord:
 def layout(words: list[tuple[str, bool]], style: WordStyle, emph_style: WordStyle, max_w: float,
            align: str = "center", line_gap: float = 0.0, max_lines: int = 4) -> tuple[list[PlacedWord], float, float]:
     """Wrap words into lines; returns placed words, block width and block height."""
-    space = font(style.kind, style.size).getlength(" ") * 0.9
+    space = font(style.kind, style.size).getlength(" ") * 0.9 + style.tracking * style.size * 2.2
     lines: list[list[tuple[str, bool, int, int, WordStyle]]] = [[]]
     width = 0.0
     for text, emph in words:
@@ -246,7 +263,7 @@ def layout(words: list[tuple[str, bool]], style: WordStyle, emph_style: WordStyl
         lines[-1].append((text, emph, w, h, st))
         width += (space if width else 0) + w
     line_h = max((h for line in lines for *_, h, _ in line), default=style.size)
-    step = line_h * (0.92 + line_gap)
+    step = line_h * ((0.74 if style.kind in SCRIPT_KINDS else 0.92) + line_gap)
     placed: list[PlacedWord] = []
     widths = [sum(w for _, _, w, _, _ in line) + space * max(len(line) - 1, 0) for line in lines]
     block_w = max(widths, default=0)
@@ -374,9 +391,6 @@ def _display_style(th: Theme, size: int, emph: bool = False, kind: str | None = 
     if emph:
         if th.emph_mode == "box":
             return WordStyle(k, size, th.emph_text, None, 0, max(3, size // 14), th.emph)
-        if th.emph_mode == "italic":
-            return WordStyle("serif_italic" if k.startswith("serif") else k, size, th.emph, th.stroke, stroke_w,
-                             max(3, size // 12))
         return WordStyle(k, size, th.emph, th.stroke, stroke_w, max(3, size // 12))
     return WordStyle(k, size, th.text, th.stroke, stroke_w, max(3, size // 12))
 
@@ -391,11 +405,12 @@ class HookTitle(Layer):
 
     def __post_init__(self):
         th = self.theme
-        size = int(self.base * (0.125 if self.vertical else 0.11))
+        size = int(self.base * (0.15 if self.vertical else 0.135))
         words = _tokens(self.title, self.emphasis, th.upper)
         self.placed, self.bw, self.bh = layout(words, _display_style(th, size), _display_style(th, size, True),
                                                self.W * (0.86 if self.vertical else 0.8), max_lines=4)
-        self.sub_style = WordStyle(th.body, int(self.base * 0.04), (235, 235, 240, 255), None, 0, 4)
+        self.sub_style = WordStyle(th.body, int(self.base * 0.034), (240, 240, 244, 255), None, 0, 4, tracking=0.16)
+        self.subtitle = self.subtitle.upper()
         self.stagger, self.word_in = 0.1, 0.34
         self.sub_at = 0.2 + len(self.placed) * self.stagger + 0.1
         self.intro = self.sub_at + 0.5
@@ -441,14 +456,13 @@ class ChapterTitle(Layer):
 
     def __post_init__(self):
         th = self.theme
-        size = int(self.base * (0.09 if self.vertical else 0.085))
+        size = int(self.base * (0.115 if self.vertical else 0.105))
         self.align = "center" if self.vertical else "left"
         words = _tokens(self.title, self.emphasis, th.upper)
         self.placed, self.bw, self.bh = layout(words, _display_style(th, size), _display_style(th, size, True),
                                                self.W * (0.84 if self.vertical else 0.6), align=self.align, max_lines=3)
         ks = int(self.base * (0.038 if self.vertical else 0.03))
-        self.kicker_style = WordStyle(th.body if th.name != "pop" else "anton", ks, (255, 255, 255, 255),
-                                      tracking=0.12 if th.name != "pop" else 0.04)
+        self.kicker_style = WordStyle("mont_bold", ks, (255, 255, 255, 255), tracking=0.18)
         self.lines = max((pw.line for pw in self.placed), default=0) + 1
 
     def draw(self, canvas, t):
@@ -495,9 +509,8 @@ class LowerThird(Layer):
 
     def __post_init__(self):
         th = self.theme
-        self.t_style = WordStyle(th.caption if th.name != "cinematic" else "serif", int(self.base * 0.046),
-                                 (255, 255, 255, 255))
-        self.s_style = WordStyle(th.body, int(self.base * 0.026), (210, 210, 220, 255), tracking=0.08)
+        self.t_style = WordStyle(th.display, int(self.base * 0.058), (255, 255, 255, 255))
+        self.s_style = WordStyle("mont_semibold", int(self.base * 0.024), (215, 215, 225, 255), tracking=0.18)
         self.tw = word_image(self.title, self.t_style)[2]
         self.sw = word_image(self.sub.upper(), self.s_style)[2] if self.sub else 0
         self.th_ = word_image(self.title, self.t_style)[3]
@@ -542,9 +555,8 @@ class LocationTag(Layer):
 
     def __post_init__(self):
         th = self.theme
-        self.p_style = WordStyle(th.caption if th.name != "cinematic" else "serif", int(self.base * 0.036),
-                                 (255, 255, 255, 255))
-        self.r_style = WordStyle(th.body, int(self.base * 0.022), (215, 215, 225, 255), tracking=0.1)
+        self.p_style = WordStyle(th.display, int(self.base * 0.046), (255, 255, 255, 255))
+        self.r_style = WordStyle("mont_semibold", int(self.base * 0.02), (220, 220, 230, 255), tracking=0.18)
 
     def draw(self, canvas, t):
         lt = t - self.start
@@ -589,7 +601,7 @@ class Caption(Layer):
 
     def __post_init__(self):
         th = self.theme
-        size = int(self.base * (0.074 if self.vertical else 0.066))
+        size = int(self.base * (0.09 if self.vertical else 0.08))
         kind = th.caption
         words = _tokens(self.text, self.emphasis, th.upper)
         self.placed, self.bw, self.bh = layout(words, _display_style(th, size, kind=kind),
@@ -647,8 +659,8 @@ class Callout(Layer):
 
     def __post_init__(self):
         th = self.theme
-        self.style = WordStyle("anton" if th.name in ("pop", "bold") else th.caption, int(self.base * 0.05),
-                               (255, 255, 255, 255) if th.name != "bold" else (0, 0, 0, 255))
+        self.style = WordStyle(th.display, int(self.base * 0.064),
+                               (255, 255, 255, 255) if th.name != "bold" else (20, 14, 6, 255))
         self.color = th.stickers[0] if th.name in ("pop", "bold") else th.accent
 
     def draw(self, canvas, t):
@@ -656,7 +668,7 @@ class Callout(Layer):
         if lt < 0 or t > self.end:
             return
         out = self.out_alpha(t)
-        img, _, w, h = word_image(self.text.upper(), self.style)
+        img, _, w, h = word_image(self.text, self.style)
         pad = int(h * 0.35)
         sticker = rounded((w + pad * 2, h + pad), int(h * 0.25), self.color)
         sticker = sticker.copy()
@@ -679,11 +691,11 @@ class EndScreen(Layer):
 
     def __post_init__(self):
         th = self.theme
-        size = int(self.base * (0.09 if self.vertical else 0.085))
+        size = int(self.base * (0.115 if self.vertical else 0.11))
         words = _tokens(self.text, "", th.upper)
         self.placed, self.bw, self.bh = layout(words, _display_style(th, size), _display_style(th, size, True),
                                                self.W * 0.82, max_lines=3)
-        self.btn_style = WordStyle("bold", int(self.base * 0.04), (255, 255, 255, 255), tracking=0.04)
+        self.btn_style = WordStyle("mont_extrabold", int(self.base * 0.036), (255, 255, 255, 255), tracking=0.06)
         self.sub_style = WordStyle(th.body, int(self.base * (0.04 if self.vertical else 0.034)), (225, 225, 232, 255))
 
     def draw(self, canvas, t):
@@ -738,15 +750,15 @@ class Subtitles(Layer):
     def __post_init__(self):
         th = self.theme
         size = int(self.base * (0.07 if self.vertical else 0.05))
-        kind = th.caption
-        sw = int(size * max(th.stroke_ratio, 0.07)) if th.name != "cinematic" else 0
+        kind = "mont_extrabold" if th.name != "cinematic" else "mont_bold"
+        sw = int(size * 0.08) if th.name != "cinematic" else 0
         stroke = (0, 0, 0, 255) if sw else None
         self.style = WordStyle(kind, size, th.text, stroke, sw, max(3, size // 10))
         if th.sub_mode == "box":
             self.hi = WordStyle(kind, size, (10, 10, 14, 255), None, 0, max(3, size // 12), th.sub_emph)
         else:
             self.hi = WordStyle(kind, size, th.sub_emph, stroke, sw, max(3, size // 10))
-        self.upper = th.upper
+        self.upper = th.name in ("bold", "pop")
         self.groups = self._group(3 if self.vertical else 6, 16 if self.vertical else 34)
 
     def _group(self, max_words: int, max_chars: int) -> list[list[tuple[str, float, float]]]:
