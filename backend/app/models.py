@@ -138,6 +138,7 @@ class JobEvent(BaseModel):
     level: Literal["info", "warning", "error", "success"] = "info"
     message: str
     progress: float | None = None
+    data: dict | None = None  # structured payload, e.g. ADK trace records
 
 
 class JobOutputs(BaseModel):

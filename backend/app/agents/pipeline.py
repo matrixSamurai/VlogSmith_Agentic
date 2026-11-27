@@ -153,6 +153,17 @@ def build_workflow(rt: JobRuntime) -> Workflow:
     )
     for agent in (analyst, planner, writer, reviewer, article_editor):
         agent.after_model_callback = _usage_tracker(rt, agent)
+
+    def card(agent: LlmAgent) -> dict:
+        model = agent.model if isinstance(agent.model, str) else getattr(agent.model, "model", "?")
+        return {"agent": agent.name, "model": model, "schema": agent.output_schema.__name__ if agent.output_schema else None}
+
+    # Which ADK LlmAgents each graph node runs (via ctx.run_node), shown in the live trace.
+    rt.extras["node_agents"] = {
+        "analyze_media": [card(analyst)], "plan_story": [card(planner)], "write_sections": [card(writer)],
+        "rewrite_sections": [card(writer)], "review_script": [card(reviewer)], "write_article": [card(article_editor)],
+        "narrate": [{"agent": "gemini_tts", "model": cfg.model_tts, "schema": "audio"}] if s.voiceover else [],
+    }
     work = rt.work_dir
 
     # ---------------------------------------------------------------- ingest

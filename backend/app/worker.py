@@ -15,6 +15,7 @@ from google.genai import types
 from .agents import runtime
 from .agents.pipeline import build_workflow
 from .agents.runtime import JobRuntime
+from .agents.trace import TracePlugin, summarize
 from .config import Settings
 from .costs import format_usd
 from .jobstore import JobStore
@@ -159,7 +160,11 @@ class JobManager:
     async def _run_workflow(self, rt: JobRuntime, abort: asyncio.Event) -> dict:
         workflow = build_workflow(rt)
         sessions = InMemorySessionService()
-        runner = Runner(app_name=APP_NAME, node=workflow, session_service=sessions)
+        async def emit(record: dict) -> None:
+            await self.store.add_event(rt.job_id, JobEvent(stage="trace", message=summarize(record), data=record))
+
+        tracer = TracePlugin(workflow, emit, rt.extras.get("node_agents", {}))
+        runner = Runner(app_name=APP_NAME, node=workflow, session_service=sessions, plugins=[tracer])
         session = await sessions.create_session(app_name=APP_NAME, user_id="creator", session_id=rt.job_id)
         message = types.Content(role="user", parts=[types.Part(text=rt.settings.context)])
         async for event in runner.run_async(user_id="creator", session_id=session.id, new_message=message,

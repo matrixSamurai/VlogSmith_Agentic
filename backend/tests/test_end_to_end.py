@@ -138,6 +138,17 @@ async def test_full_pipeline(env, transition, voiceover, aspect):
         yt = (await client.get(f"/api/jobs/{job['id']}/files/youtube.txt")).text
         assert "Chasing Light in the Alps" in yt and "0:00 Intro" in yt and "Come ride the rails." in yt
         assert "Motion graphics:" in events
+        traces = [json.loads(l[6:])["data"] for l in events.splitlines()
+                  if l.startswith("data:") and '"stage":"trace"' in l]
+        graph = next(t for t in traces if t["type"] == "graph")
+        assert {"review_script", "production_join", "analyze_media"} <= {n["id"] for n in graph["nodes"]}
+        handoffs = [t for t in traces if t["type"] == "handoff"]
+        assert any(h["from"] == "review_script" and h["route"] == "revise" and h["to"] == ["rewrite_sections"] for h in handoffs)
+        assert any(h["from"] == "review_script" and h["route"] == "approved" and len(h["to"]) == 3 for h in handoffs)
+        assert any(h["from"] == "plan_story" and h["shape"].startswith("list[2]") for h in handoffs)
+        llm = [t for t in traces if t["type"] == "llm_start"]
+        assert len(llm) == sum(fake.calls.values()) and any(t["schema"] == "SectionScript" for t in llm)
+        Path(tmp / f"trace_{transition}.txt").write_text("\n".join(json.dumps(t)[:300] for t in traces))
         # Cost: every fake call = 1000 in + (200 out + 300 thinking) -> $0.003 + $0.0075 = $0.0105
         cost = job["cost"]
         fake_lines = [l for l in cost["lines"] if l["model"] == "fake-gemini"]

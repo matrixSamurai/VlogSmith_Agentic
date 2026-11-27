@@ -89,6 +89,10 @@ def create(args: argparse.Namespace) -> None:
                     elif line.startswith("data: ") and event == "progress":
                         ev = json.loads(line[6:])
                         seen = ev["seq"]
+                        if ev["stage"] == "trace":
+                            if args.trace and ev.get("data", {}).get("type") in ("graph", "handoff", "llm_start", "route"):
+                                print(f"       ⇢ ADK  {ev['message']}")
+                            continue
                         pct = f"{ev['progress'] * 100:3.0f}%" if ev.get("progress") is not None else "    "
                         print(f"  {pct} [{ev['stage']}] {ev['message']}")
             job = _check(client.get(f"/api/jobs/{job_id}"))
@@ -129,6 +133,7 @@ def _print_cost(cost: dict | None) -> None:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(line_buffering=True)  # live progress even when piped
     p = argparse.ArgumentParser(prog="vlogsmith", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("create", help="upload media and create a vlog")
@@ -150,6 +155,7 @@ def main() -> None:
     c.add_argument("--server", default="http://localhost:8080")
     c.add_argument("--token", help="bearer token for a private Cloud Run service")
     c.add_argument("--out", default="./vlogs")
+    c.add_argument("--trace", action="store_true", help="print ADK hand-offs, routes and model calls live")
     args = p.parse_args()
     if args.cmd == "create":
         create(args)

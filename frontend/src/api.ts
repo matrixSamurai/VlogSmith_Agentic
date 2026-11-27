@@ -104,6 +104,7 @@ export interface JobEvent {
   level: "info" | "warning" | "error" | "success";
   message: string;
   progress?: number | null;
+  data?: Record<string, unknown> | null;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { api, subscribe, usd, type Job, type JobCost, type JobEvent } from "../api";
 import { ProgressBar, StatusBadge } from "../components/ui";
+import AgentFlow from "../components/AgentFlow";
 
 const STAGES = [
   { id: "ingest", label: "Ingest", desc: "Normalize photos, sample video keyframes", icon: Upload },
@@ -95,6 +96,8 @@ export default function JobPage() {
 
       {!done && <ProgressBar value={job.progress} active={running} />}
 
+      {!done && <AgentFlow events={events} live={running} />}
+
       {job.status === "failed" && (
         <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
           <XCircle size={18} className="mt-0.5 shrink-0" /> {job.error || "Something went wrong."}
@@ -112,7 +115,7 @@ export default function JobPage() {
         <div className="card flex max-h-[640px] flex-col p-0">
           <div className="border-b border-white/5 px-5 py-3 text-sm font-semibold">Agent activity</div>
           <div ref={logRef} className="flex-1 space-y-2 overflow-y-auto p-4 text-sm">
-            {events.map((ev) => (
+            {events.filter((ev) => ev.stage !== "trace").map((ev) => (
               <div key={ev.seq} className="flex gap-3">
                 <span className="w-14 shrink-0 pt-0.5 text-[11px] tabular-nums text-zinc-600">
                   {new Date(ev.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
@@ -130,6 +133,7 @@ export default function JobPage() {
         </div>
         </div>
       </div>
+      {done && <AgentFlow events={events} live={false} />}
     </div>
   );
 }

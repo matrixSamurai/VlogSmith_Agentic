@@ -56,6 +56,28 @@ length, keep or mute clip audio, music source, mood and volume, voiceover and vo
 editor review rounds, and quality (fast/balanced/high, which picks Flash or Pro and the x264 preset). The UI also has
 one-click presets (YouTube, Reel/Short, Cinematic, Square).
 
+## Live ADK trace
+
+While a vlog is being made, the job page shows the **ADK Workflow** graph exactly as ADK compiled it (14 nodes, 16
+edges), and updates it live:
+
+- **Hand-offs:** when a node finishes, ADK passes its output as `node_input` to the successor nodes chosen by the edges.
+  For the router (`review_script`), the successors are chosen by the `ctx.route` it set. Each hand-off animates its edge
+  and appears in the **Control flow** feed with the payload's shape (e.g. `list[4] of dict{index, feedback}`). Expand it
+  to see the payload itself.
+- **Parallel workers:** `analyze_media`, `write_sections` and `rewrite_sections` show one chip per worker
+  instance as it starts and finishes.
+- **Model calls:** each `LlmAgent` call shows its agent, model, `output_schema`, image count, prompt, structured response
+  and tokens.
+- **Routes and loops:** `ctx.route = "revise"` / `"approved"`, loop re-entries (`run 2`) and a `×2` count on edges
+  traversed twice.
+- **Click a node** to inspect its latest `node_input`, its output, the session-state keys it wrote, and all its prompts.
+
+This comes from `backend/app/agents/trace.py`, a standard ADK `BasePlugin` on the Runner. It uses
+`on_event_callback` for node outputs, routes and state deltas, and `before/after_model_callback` for LLM calls. Records
+are stored as job events, so the trace can be replayed after the job finishes. In the CLI, add `--trace` to print the
+hand-offs live.
+
 ## Generation cost
 
 Every run ends with a **Generation cost** line in the activity log. The job page shows a breakdown card, and the
