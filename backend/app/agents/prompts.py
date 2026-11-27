@@ -23,7 +23,11 @@ design the episode.
 - Open with the strongest moment: the cold open plays over the best shot with the title animated on top.
 - 3-7 sections with a clear arc: hook -> build-up -> payoff -> wrap-up. Each section is a chapter with a short
   on-screen title (2-6 words) and a kicker label ("Day One", "Stop 2", "The Food"...).
-- Use EVERY media id exactly once. Order media so the visuals flow and vary (wide, detail, people, motion).
+- CURATE the photos: you do NOT have to use every photo. Pick only the shots that make the best vlog and skip the
+  rest. Drop low-quality photos (low `quality` score, blurry, badly framed) and near-duplicates - when several photos
+  show almost the same thing, keep only the single best one. Always keep EVERY video. Aim for the photo budget given
+  below; use fewer if the extras add nothing. A tight, varied edit beats a long repetitive one.
+- Order the media you keep so the visuals flow and vary (wide, detail, people, motion). Use each kept media id once.
 - Section seconds should add up to roughly the target duration.
 - Title: curiosity-driven but honest, <= 60 characters. thumbnail_text: 2-4 BIG words that tease, not repeat.
 - Pick a colour look that fits the footage and tone.

@@ -359,6 +359,13 @@ export default function CreatePage() {
                 <Segmented value={settings.quality} options={["fast", "balanced", "high"] as const} onChange={(v) => set("quality", v)} />
               </Field>
               <Slider label="Editor review rounds" value={settings.review_rounds} min={0} max={3} step={1} onChange={(v) => set("review_rounds", v)} />
+              <Toggle label="Let the agent pick the best photos" hint="Skips weak shots and near-duplicates instead of using every photo. Videos are always kept." checked={settings.curate_media} onChange={(v) => set("curate_media", v)} />
+              {settings.curate_media && (
+                <Field label="Max photos in the vlog" hint="Leave blank to let the agent choose from the length.">
+                  <input className="field" type="number" min={1} max={1000} placeholder="Auto" value={settings.max_photos ?? ""}
+                    onChange={(e) => set("max_photos", e.target.value ? Number(e.target.value) : null)} />
+                </Field>
+              )}
               <Toggle label="Write a blog article too" checked={settings.generate_article} onChange={(v) => set("generate_article", v)} />
               {settings.generate_article && (
                 <Field label="Article length">

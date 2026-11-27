@@ -167,6 +167,29 @@ async def test_full_pipeline(env, transition, voiceover, aspect):
 
 
 @pytest.mark.asyncio
+async def test_curation_uses_only_best_photos(env):
+    app, fake, tmp = env
+    async with app.router.lifespan_context(app), httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+        colors = [(30, 110, 190), (190, 80, 50), (60, 160, 90), (200, 160, 40), (120, 90, 200),
+                  (40, 40, 40), (230, 120, 170), (90, 190, 190)]
+        ids = [await _upload(client, f"p{i}.jpg", "image/jpeg", _jpeg(c, (1600, 1067))) for i, c in enumerate(colors)]
+        ids.append(await _upload(client, "clip.mp4", "video/mp4", await _video(tmp / "clip.mp4")))
+        settings = {"context": "Lots of alpine photos", "target_duration": 30, "resolution": "720p",
+                    "quality": "fast", "review_rounds": 0, "music_source": "none",
+                    "curate_media": True, "max_photos": 3}
+        r = await client.post("/api/jobs", json={"upload_ids": ids, "settings": settings})
+        assert r.status_code == 201, r.text
+        job = await _wait(client, r.json()["id"])
+        events = (await client.get(f"/api/jobs/{job['id']}/events")).text
+        assert job["status"] == "succeeded", (job, events)
+
+        # All 9 files analysed, but the plan curates down to 3 photos + the always-kept video.
+        assert fake.calls["MediaInsight"] == 9
+        assert "using 4 of 9 files" in events and "left out" in events
+
+
+@pytest.mark.asyncio
 async def test_upload_validation(env):
     app, _, _ = env
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:

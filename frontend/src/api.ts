@@ -37,6 +37,8 @@ export interface BlogSettings {
   generate_article: boolean;
   article_length: "short" | "medium" | "long";
   review_rounds: number;
+  curate_media: boolean;
+  max_photos?: number | null;
   quality: "fast" | "balanced" | "high";
 }
 

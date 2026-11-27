@@ -38,6 +38,12 @@ class FakeGemini(BaseLlm):
                        highlight_end=4.0 if is_video else 0, tags=["travel", "alps"])
         elif name == "StoryPlan":
             ids = list(dict.fromkeys(re.findall(r"id=(m\d+)", text)))
+            budget = re.search(r"use about (\d+) of the", text)
+            if budget:  # curation on: keep videos + up to `budget` photos, drop the rest
+                import re as _re
+                videos = [i for i in ids if _re.search(rf"id={i} \(video", text)]
+                photos = [i for i in ids if i not in videos][: int(budget.group(1))]
+                ids = [i for i in ids if i in set(videos + photos)]
             half = max(1, len(ids) // 2)
             groups = [ids[:half], ids[half:]] if len(ids) > 1 else [ids]
             out = dict(title="Chasing Light in the Alps", title_emphasis="Light", thumbnail_text="Alps by train", look="cinematic", subtitle="Three days of lakes and trains",

@@ -48,6 +48,14 @@ START → ingest → analyze_media ×N (parallel) → plan_story → write_secti
 All structured outputs are enforced with Pydantic `output_schema` (`backend/app/agents/schemas.py`).
 Prompts are in `backend/app/agents/prompts.py`.
 
+## Photo curation
+
+When you upload more photos than a vlog needs, the story planner chooses the best ones and leaves the rest out, rather
+than cramming every file in. It drops low-quality shots and near-duplicates (several photos of almost the same thing
+keep only the strongest). **Every video is always kept.** The number of photos it aims for comes from a `max_photos`
+cap, or from the target length (about one photo per 4 seconds). The activity log reports it, e.g. *"using 10 of 17 files
+(7 weaker/duplicate photos left out)"*. Turn it off with `curate_media: false` to use every file (the old behaviour).
+
 ## Settings users can configure
 
 Tone, language, audience, title, target length (20–600 s), aspect ratio (16:9 / 9:16 / 1:1), 720p/1080p, 24/30 fps,

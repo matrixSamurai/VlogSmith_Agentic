@@ -244,18 +244,30 @@ def build_workflow(rt: JobRuntime) -> Workflow:
     async def plan_story(ctx: Context, node_input: list[dict]):
         insights = {item["media_id"]: {k: v for k, v in item.items() if k != "media_id"} for item in node_input}
         ctx.state["insights"] = insights
-        await rt.info("plan", "Story planner is designing the narrative arc", 0.27)
+        n_photos = sum(1 for lm in rt.local.values() if lm.ref.kind == "image")
+        n_videos = len(rt.local) - n_photos
+        await rt.info("plan", f"Story planner is curating {n_photos} photos and {n_videos} videos", 0.27)
+        budget = _photo_budget(s, n_photos)
+        guidance = (f"Photo budget: use about {budget} of the {n_photos} photos (the strongest, most varied). "
+                    "Keep all videos."
+                    if s.curate_media and n_photos > 0 else
+                    "Use every photo and video exactly once.")
         prompt = (
             f"{_brief(rt)}\n\nMedia library ({len(insights)} items):\n{_media_summary(rt, insights)}\n\n"
-            "Design the story plan."
+            f"{guidance}\n\nDesign the story plan."
         )
         plan = StoryPlan.model_validate(await ctx.run_node(planner, node_input=_user(prompt)))
-        plan = _repair_plan(plan, insights)
+        plan = _repair_plan(plan, insights, rt, curate=s.curate_media, max_photos=budget)
         if s.title:
             plan.title = s.title
         ctx.state["plan"] = plan.model_dump()
         ctx.state["review_round"] = 0
-        await rt.report("plan", f"Plan ready: “{plan.title}” with {len(plan.sections)} sections", 0.32, "success")
+        used = {m for sec in plan.sections for m in sec.media_ids}
+        skipped = len(insights) - len(used)
+        msg = f"Plan ready: “{plan.title}” with {len(plan.sections)} sections, using {len(used)} of {len(insights)} files"
+        if skipped:
+            msg += f" ({skipped} weaker/duplicate photo{'s' if skipped != 1 else ''} left out)"
+        await rt.report("plan", msg, 0.32, "success")
         return [{"index": i, "feedback": ""} for i in range(len(plan.sections))]
 
     # ---------------------------------------------------------------- write
@@ -540,21 +552,48 @@ def _usage_tracker(rt: JobRuntime, agent: LlmAgent):
 
 
 # ------------------------------------------------------------ repairs (LLM output hardening)
-def _repair_plan(plan: StoryPlan, insights: dict[str, dict]) -> StoryPlan:
-    """Guarantee every media item appears exactly once and no section is empty."""
+def _photo_budget(settings, n_photos: int) -> int:
+    """How many photos the vlog should use: explicit cap, else ~1 per 4s of target length."""
+    if settings.max_photos:
+        return min(settings.max_photos, n_photos)
+    return min(n_photos, max(6, round(settings.target_duration / 4)))
+
+
+def _repair_plan(plan: StoryPlan, insights: dict[str, dict], rt: JobRuntime, curate: bool = True,
+                 max_photos: int | None = None) -> StoryPlan:
+    """Normalize the plan: each kept item used once, no empty section.
+
+    ``curate`` False keeps every uploaded item (legacy). True lets the planner skip weak/duplicate
+    photos; videos are always kept, and photos over ``max_photos`` are trimmed lowest-quality first.
+    """
     valid = list(insights)
+    is_video = {mid: (rt.local.get(mid).ref.kind == "video" if mid in rt.local else False) for mid in valid}
     seen: set[str] = set()
     for sec in plan.sections:
         sec.media_ids = [m for m in sec.media_ids if m in insights and not (m in seen or seen.add(m))]
     plan.sections = [sec for sec in plan.sections if sec.media_ids]
-    missing = [m for m in valid if m not in seen]
     if not plan.sections:
         from .schemas import PlannedSection
 
         plan.sections = [PlannedSection(heading=plan.title or "The story", heading_emphasis="", kicker="", purpose="",
-                                       media_ids=[], seconds=30)]
-    for m in missing:  # append leftovers to the smallest section
+                                        media_ids=[], seconds=30)]
+
+    if not curate:  # keep everything
+        for m in [x for x in valid if x not in seen]:
+            min(plan.sections, key=lambda x: len(x.media_ids)).media_ids.append(m)
+        return plan
+
+    for m in [v for v in valid if is_video[v] and v not in seen]:  # always keep videos
         min(plan.sections, key=lambda x: len(x.media_ids)).media_ids.append(m)
+        seen.add(m)
+
+    if max_photos is not None:  # enforce the photo budget, dropping the weakest first
+        used_photos = [m for sec in plan.sections for m in sec.media_ids if not is_video[m]]
+        if len(used_photos) > max_photos:
+            drop = set(sorted(used_photos, key=lambda m: insights.get(m, {}).get("quality", 0))[:len(used_photos) - max_photos])
+            for sec in plan.sections:
+                sec.media_ids = [m for m in sec.media_ids if m not in drop]
+            plan.sections = [sec for sec in plan.sections if sec.media_ids] or plan.sections
     return plan
 
 

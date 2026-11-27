@@ -74,6 +74,10 @@ class BlogSettings(BaseModel):
     article_length: Literal["short", "medium", "long"] = "medium"
     review_rounds: int = Field(default=1, ge=0, le=3)
     quality: Literal["fast", "balanced", "high"] = "balanced"
+    # Curation: let the planner use only the best photos instead of every uploaded file.
+    curate_media: bool = True
+    max_photos: int | None = Field(default=None, ge=1, le=1000,
+                                   description="Cap on photos used in the vlog. None = the agent decides from the length.")
 
     @field_validator("title", "outro_text", "audience", "channel_name", mode="before")
     @classmethod
