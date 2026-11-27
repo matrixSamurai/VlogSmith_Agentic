@@ -389,7 +389,7 @@ def build_workflow(rt: JobRuntime) -> Workflow:
         plan = ctx.state["plan"]
         mood = s.music_mood if s.music_mood != "auto" else plan.get("music_mood", "calm")
         mood = mood if mood in audio.MOODS else "calm"
-        length = _clamp(s.target_duration * 1.6 + 20, 40, 900)
+        length = _clamp(s.target_duration * 1.6 + 20, 40, 4200)
         track: Path | None = None
         source = s.music_source
         if source == "upload":

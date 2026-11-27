@@ -38,7 +38,7 @@ class BlogSettings(BaseModel):
     audience: str | None = Field(default=None, max_length=200)
 
     # Video
-    target_duration: int = Field(default=75, ge=20, le=600, description="Approximate vlog length in seconds.")
+    target_duration: int = Field(default=75, ge=20, le=3600, description="Approximate vlog length in seconds.")
     aspect_ratio: Literal["16:9", "9:16", "1:1"] = "16:9"
     resolution: Literal["720p", "1080p"] = "1080p"
     fps: Literal[24, 30] = 30

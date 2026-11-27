@@ -258,8 +258,8 @@ export default function CreatePage() {
                 <Segmented value={settings.aspect_ratio} options={["16:9", "9:16", "1:1"] as const} onChange={(v) => set("aspect_ratio", v)}
                   labels={{ "16:9": "16:9 Wide", "9:16": "9:16 Vertical", "1:1": "1:1 Square" }} />
               </Field>
-              <Slider label="Target length" value={settings.target_duration} min={20} max={300} step={5}
-                onChange={(v) => set("target_duration", v)} format={(v) => (v >= 60 ? `${Math.floor(v / 60)}m ${v % 60}s` : `${v}s`)} />
+              <Slider label="Target length" value={settings.target_duration} min={20} max={3600} step={5}
+                onChange={(v) => set("target_duration", v)} format={(v) => (v >= 60 ? `${Math.floor(v / 60)}m${v % 60 ? " " + (v % 60) + "s" : ""}` : `${v}s`)} />
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Resolution">
                   <Segmented value={settings.resolution} options={["720p", "1080p"] as const} onChange={(v) => set("resolution", v)} />
